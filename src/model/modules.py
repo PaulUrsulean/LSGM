@@ -51,7 +51,7 @@ class MLPEncoder(nn.Module):
         self.mlp1 = MLP(input_size, hidden_size, hidden_size)
         self.mlp2 = MLP(hidden_size * 2, hidden_size, hidden_size)
         self.mlp3 = MLP(hidden_size, hidden_size, hidden_size)
-        self.mlp4 = MLP(hidden_size * 2, hidden_size, hidden_size)
+        self.mlp4 = MLP(hidden_size * 3, hidden_size, hidden_size)
         self.mlp_out = nn.Linear(hidden_size, output_size)
 
     def forward(self, input, adj_rec=None, adj_send=None):
@@ -69,11 +69,17 @@ class MLPEncoder(nn.Module):
         x = self.mlp2(x)
         x_skip = x
 
-        x = edge2node(x, adj_rec, adj_send)
-        x = self.mlp3(x)
+        # x = edge2node(x, adj_rec, adj_send)
+        # x = self.mlp3(x)
         # x = node2edge(x, adj_rec, adj_send)
+        # x = self.mlp4(x)
+        # x = torch.cat((x, x_skip), dim=2)
+        # x = self.mlp4(x)
 
-        x = torch.cat((x, x_skip), dim=2)
+        x = edge2node(x, adj_rec, adj_send, )
+        x = self.mlp3(x)
+        x = node2edge(x, adj_rec, adj_send)
+        x = torch.cat((x, x_skip), dim=2)  # Skip connection
         x = self.mlp4(x)
         return self.mlp_out(x)
 

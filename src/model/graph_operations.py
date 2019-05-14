@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from torch.autograd import Variable
 from torch.distributions import Gumbel
 
 gumbel = Gumbel(0, 1)
@@ -11,11 +12,13 @@ def encode_onehot(labels):
     :param labels: 
     :return: 
     """
+
     classes = set(labels)
     classes_dict = {c: np.identity(len(classes))[i, :] for i, c in
                     enumerate(classes)}
     labels_onehot = np.array(list(map(classes_dict.get, labels)),
                              dtype=np.int32)
+
     return labels_onehot
 
 
@@ -32,7 +35,7 @@ def gen_fully_connected(n_elements):
     return rel_rec, rel_send
 
 
-def node2edge(m, adj_rec=None, adj_send=None):
+def node2edge(m, adj_rec=None, adj_send=None, n_elements=None):
     """
     Calculates edge embeddings
     :param m: Tensor with shape (SAMPLES, OBJECTS, FEATURES)
@@ -43,10 +46,12 @@ def node2edge(m, adj_rec=None, adj_send=None):
     n_elements = m.size(2) if len(m.size()) > 3 else m.size(1)
     if adj_send is None or adj_rec is None:
         adj_rec, adj_send = gen_fully_connected(n_elements)
+        adj_rec = Variable(adj_rec)
+        adj_send = Variable(adj_send)
 
     outgoing = torch.matmul(adj_send, m)
     incoming = torch.matmul(adj_rec, m)
-    return torch.cat((outgoing, incoming), dim=2)
+    return torch.cat([outgoing, incoming], dim=2)
 
 
 def edge2node(m, adj_rec, adj_send):
@@ -60,9 +65,12 @@ def edge2node(m, adj_rec, adj_send):
     n_elements = m.size(2) if len(m.size()) > 3 else m.size(1)
     if adj_send is None or adj_rec is None:
         adj_rec, adj_send = gen_fully_connected(n_elements)
+        adj_rec = Variable(adj_rec)
+        adj_send = Variable(adj_send)
 
-    outgoing = torch.matmul(adj_rec.t(), m)
-    return outgoing
+    incoming = torch.matmul(adj_rec.t(), m)
+    return incoming / incoming.size(1)
+
 
 def sample_gumbel(shape):
     gumbel.sample(shape)
