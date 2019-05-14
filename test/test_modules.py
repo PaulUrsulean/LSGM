@@ -2,6 +2,7 @@ import unittest
 import torch
 
 from src.model import modules
+from src.model import graph_operations as go
 
 
 class MLPModuleTests(unittest.TestCase):
@@ -17,6 +18,17 @@ class MLPModuleTests(unittest.TestCase):
         # Assert error is thrown on wrong input dimensions
         input = torch.rand((30, 5))
         self.assertRaises(RuntimeError, mlp, input)
+
+
+class RNNDecoderTests(unittest.TestCase):
+    pass
+    #def test_rnn_decoder_shape(self):
+    #    decoder = modules.RNNDecoder(10, 2, 30)
+#
+    #    data = torch.rand((100, 50, 5, 10))
+    #    graph = torch.rand((100, 5 * 4, 2)).round()
+    #    graph = go.encode_onehot(graph)
+    #    out = decoder(data, graph)
 
 
 class MLPEncoderTests(unittest.TestCase):
