@@ -22,3 +22,4 @@ To run a program on a specific GPU only, execute
 ### Contribution
 I'd propose to keep the overall structure similar to the one 
 in [this Pytorch Template](https://github.com/victoresque/pytorch-template). This is optional of course though. :)
+Right now, the logger package is directly used in our project.

@@ -7,6 +7,10 @@ from src.model.graph_operations import node2edge, edge2node, gen_fully_connected
 
 
 class MLP(nn.Module):
+    """
+    Small Multilayer Perceptron Block mostly used in Encoder.
+    Uses ELU for activation function and additionally uses dropout and batchnormalization for regularization.
+    """
 
     def __init__(self, input_size, hidden_size, output_size, keep_prob=1.):
         super(MLP, self).__init__()
@@ -57,6 +61,7 @@ class MLPEncoder(nn.Module):
     def forward(self, input, adj_rec=None, adj_send=None):
         """
         Implementation from (Kipf et al, 2018)
+        Currently uses factor-version (see paper for details)
         :param input: Tensor of shape TODO
         :return:
         """
@@ -69,14 +74,7 @@ class MLPEncoder(nn.Module):
         x = self.mlp2(x)
         x_skip = x
 
-        # x = edge2node(x, adj_rec, adj_send)
-        # x = self.mlp3(x)
-        # x = node2edge(x, adj_rec, adj_send)
-        # x = self.mlp4(x)
-        # x = torch.cat((x, x_skip), dim=2)
-        # x = self.mlp4(x)
-
-        x = edge2node(x, adj_rec, adj_send, )
+        x = edge2node(x, adj_rec, adj_send)
         x = self.mlp3(x)
         x = node2edge(x, adj_rec, adj_send)
         x = torch.cat((x, x_skip), dim=2)  # Skip connection
@@ -85,7 +83,7 @@ class MLPEncoder(nn.Module):
 
 
 class RNNDecoder(nn.Module):
-    # Stolen from https://github.com/ethanfetaya/NRI
+    # Taken from https://github.com/ethanfetaya/NRI with adaptions from us
     """Recurrent decoder module."""
 
     def __init__(self, n_in_node, edge_types, n_hid,

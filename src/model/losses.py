@@ -1,8 +1,9 @@
 import torch
 import numpy as np
 
-
-## Stolen from https://github.com/ethanfetaya/NRI/blob/master/utils.py
+"""
+Calculations taken fromfrom https://github.com/ethanfetaya/NRI/blob/master/utils.py with adaptions
+"""
 
 def kl_categorical(log_prior, num_atoms, eps=1e-16):
     def f(preds):

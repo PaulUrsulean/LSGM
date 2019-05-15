@@ -2,18 +2,12 @@ import unittest
 
 import torch
 import torch.utils.data as data
-from torch.utils.data import TensorDataset
 from torch.optim import lr_scheduler
-import numpy as np
+from torch.utils.data import TensorDataset
 
-from src.model.graph_operations import gen_fully_connected
+from src.model import losses
 from src.model.modules import MLPEncoder, RNNDecoder
 from src.trainer import Trainer
-from src.model import losses
-
-from sklearn.metrics import mean_squared_error
-
-from src.trainer.trainer import TrainConfig
 
 
 class MyTestCase(unittest.TestCase):
@@ -35,21 +29,44 @@ class MyTestCase(unittest.TestCase):
             test_loader = data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat)))
         )
 
-        opt = torch.optim.Adam(params=list(encoder.parameters()) + list(decoder.parameters()))
-        scheduler = lr_scheduler.StepLR(opt, 200)
+
+
+        config = dict(
+            edge_types=n_edges,
+            n_atoms=n_atoms,
+
+            epochs=30,
+
+            use_early_stopping=True,
+            early_stopping_patience=1,
+            early_stopping_mode='min', # in ["min", "max"]
+            early_stopping_metric='val_loss',
+
+            gpu_id=None,  # or None
+            log_dir='./logs_test',
+
+            timesteps=1,  # In forecast
+            prediction_steps=2,  #
+
+            temp=2,
+            hard=True,
+            burn_in=False,
+
+            beta=1,
+
+            log_step=1,
+
+            logger_config = ".",
+
+            pred_steps=1
+        )
 
         trainer = Trainer(encoder=encoder,
                           decoder=decoder,
-                          nll_loss=losses.nll_gaussian(.1),  # TODO
-                          kl_loss=losses.kl_categorical_uniform(n_atoms, n_edges),
                           data_loaders=data_loaders,
-                          metrics=[],
-                          optimizer=opt,
-                          lr_scheduler=scheduler,
-                          config=TrainConfig())
-        for i in range(5):
-            log = trainer._train_epoch(1)
-            print(log)
+                          metrics=[losses.nll_gaussian(.1)], # What other metrics + allow full VAE loss
+                          config=config)
+        trainer.train()
 
     def test_overfit_epoch(self):
         self.assertEqual(True, True)
