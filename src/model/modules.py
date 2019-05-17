@@ -113,7 +113,7 @@ class RNNDecoder(nn.Module):
         self.dropout_prob = do_prob
 
     def single_step_forward(self, inputs, rel_rec, rel_send,
-                            rel_type, hidden):
+                            rel_type, hidden, device=torch.device('cpu')):
 
         # node2edge
         receivers = torch.matmul(rel_rec, hidden)
@@ -122,8 +122,7 @@ class RNNDecoder(nn.Module):
 
         all_msgs = Variable(torch.zeros(pre_msg.size(0), pre_msg.size(1),
                                         self.msg_out_shape))
-        if inputs.is_cuda:
-            all_msgs = all_msgs.cuda()
+        all_msgs = all_msgs.to(device)
 
         if self.skip_first_edge_type:
             start_idx = 1
@@ -163,7 +162,7 @@ class RNNDecoder(nn.Module):
 
     def forward(self, data, rel_type, rel_rec=None, rel_send=None, pred_steps=1,
                 burn_in=False, burn_in_steps=1, dynamic_graph=False,
-                encoder=None, temp=None):
+                encoder=None, temp=None, device=torch.device('cpu')):
 
         inputs = data.transpose(1, 2).contiguous()
 
@@ -179,8 +178,8 @@ class RNNDecoder(nn.Module):
         # [batch_size, num_atoms*(num_atoms-1), num_edge_types]
 
         hidden = Variable(torch.zeros(inputs.size(0), inputs.size(2), self.msg_out_shape))
-        if inputs.is_cuda:
-            hidden = hidden.cuda()
+
+        hidden = hidden.to(device)
 
         pred_all = []
 

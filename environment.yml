@@ -19,4 +19,5 @@ dependencies:
   - tensorflow
   - jupyterlab
   - scikit-optimize
+  - pytest
 
