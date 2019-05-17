@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 from src.model import losses
-from src.model.graph_operations import gen_fully_connected
+from src.model.utils import gen_fully_connected
 from src.model.modules import RNNDecoder
 
 

@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-from src.model.graph_operations import node2edge, edge2node, gen_fully_connected
+from src.model.utils import node2edge, edge2node, gen_fully_connected
 
 
 class MLP(nn.Module):
@@ -58,7 +58,7 @@ class MLPEncoder(nn.Module):
         self.mlp4 = MLP(hidden_size * 3, hidden_size, hidden_size)
         self.mlp_out = nn.Linear(hidden_size, output_size)
 
-    def forward(self, input, adj_rec=None, adj_send=None):
+    def forward(self, input, adj_rec, adj_send):
         """
         Implementation from (Kipf et al, 2018)
         Currently uses factor-version (see paper for details)

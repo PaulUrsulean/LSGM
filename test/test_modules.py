@@ -2,8 +2,8 @@ import unittest
 import torch
 
 from src.model import modules
-from src.model import graph_operations as go
-from src.model.graph_operations import encode_onehot
+from src.model import utils as go
+from src.model.utils import encode_onehot
 
 
 class MLPModuleTests(unittest.TestCase):

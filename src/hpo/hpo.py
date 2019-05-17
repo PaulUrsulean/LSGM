@@ -42,7 +42,7 @@ class HPO:
         return parameters
 
     def _eval_config(self, parameter_sets):
-        assert(len(parameter_sets) == self.n_gpus)
+        assert (len(parameter_sets) == self.n_gpus)
         # TODO: Make use of parallelization if not already happening
         return [self.objective_function(self.devices[i], *params) for i, params in enumerate(parameter_sets)]
 
@@ -54,4 +54,4 @@ class HPO:
             self.optimizer.tell(new_points, res)
 
         # Return best configuration
-        return sorted(list(zip(self.optimizer.Xi, self.optimizer.yi)), key=lambda x:x[1])[:return_best_n]
+        return sorted(list(zip(self.optimizer.Xi, self.optimizer.yi)), key=lambda x: x[1])[:return_best_n]

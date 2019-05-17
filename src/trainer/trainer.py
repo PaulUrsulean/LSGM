@@ -9,72 +9,29 @@ from torch.autograd import Variable
 
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
-from src.model.graph_operations import gen_fully_connected
+from src.model.utils import gen_fully_connected
 from src.model.modules import RNNDecoder
-
-
-def generate_config(n_edges, n_atoms, *args, **kwargs):
-    config = dict(
-        edge_types=n_edges,
-        n_atoms=n_atoms,
-
-        epochs=30,
-
-        use_early_stopping=True,
-        early_stopping_patience=1,
-        early_stopping_mode='min',  # in ["min", "max"]
-        early_stopping_metric='val_loss',
-
-        gpu_id=None,  # or None
-        log_dir='./logs_test',
-
-        timesteps=1,  # In forecast
-        prediction_steps=2,  #
-
-        temp=2,
-        hard=True,
-        burn_in=False,
-
-        beta=1,
-
-        log_step=1,
-
-        logger_config=".",
-
-        pred_steps=1
-    )
-
-    # Override with manually set values
-    for key, value in kwargs.items():
-        config[key] = value
-    return config
 
 
 class Trainer:
 
     def __init__(self, encoder, decoder,
                  data_loaders,
-                 config, nll_loss=None,
-                 metrics=[],
-                 kl_loss=None):
-        self.encoder = encoder
-        self.decoder = decoder
-        self.nll_loss = nll_loss
-        self.kl_loss = kl_loss
+                 config,
+                 metrics=[]):
+        self.config = config
         self.data_loader = data_loaders
         self.metrics = metrics
+        self.optimizer = torch.optim.Adam(lr=config['adam_learning_rate'],
+                                          betas=config['adam_betas'],
+                                          params=list(encoder.parameters()) + list(decoder.parameters()))
 
-        self.optimizer = torch.optim.Adam(params=list(encoder.parameters()) + list(decoder.parameters()))
-        self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 200)  # TODO Hyperparameter
-
-        if self.nll_loss is None:
-            self.nll_loss = losses.nll_gaussian(.1)
-
-        if self.kl_loss is None:
-            self.kl_loss = losses.kl_categorical_uniform(config['n_atoms'], config['edge_types'])
-
-        self.config = config
+        self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, config['scheduler_stepsize'])
         self.device = torch.device('cpu') if config['gpu_id'] is None else torch.device(f'cuda:{config["gpu_id"]}')
+
+        # Move models to gpu
+        self.encoder = encoder.to(self.device)
+        self.decoder = decoder.to(self.device)
 
         self.train_loader = data_loaders['train_loader']
         self.valid_loader = data_loaders['valid_loader']
@@ -82,12 +39,12 @@ class Trainer:
 
         self.do_validation = True
 
-        self.rel_rec, self.rel_send = None, None
-
+        # Logging config
         setup_logging(config['log_dir'], config['logger_config'])
         self.logger = logging.getLogger('trainer')
         self.writer = WriterTensorboardX(config['log_dir'], self.logger, True)
 
+        # Early stopping behaviour
         assert (config['early_stopping_mode'] in ['min', 'max'])
         self.mnt_best = inf if config['early_stopping_mode'] == 'min' else -inf
 
@@ -112,49 +69,55 @@ class Trainer:
         :param epoch:
         :return:
         """
-        self.encoder.train()
-        self.decoder.train()
 
         total_loss = 0
         total_metrics = np.zeros(len(self.metrics))
 
         for batch_id, batch in enumerate(self.train_loader):
             batch = batch[0].to(self.device)
-            batch = Variable(batch)
 
-            self.rel_rec, self.rel_send = gen_fully_connected(batch.size(1))
-
-            # TODO: rel-rec etc. not named, move to gpu
+            self.rel_rec, self.rel_send = gen_fully_connected(self.config['n_atoms'], device=self.device)
 
             self.optimizer.zero_grad()
 
-            logits = self.encoder(batch, self.rel_rec, self.rel_send)  # TODO Assumes fully connected
+            logits = self.encoder(batch, self.rel_rec, self.rel_send)
             edges = F.gumbel_softmax(logits, tau=self.config['temp'], hard=self.config['hard'])
-            prob = F.softmax(edges)  # my_softmax(edges, -1)#TODO
+            prob = F.softmax(edges)  # TODO: Should we use my_softmax from Kipf impl?
 
             if isinstance(self.decoder, RNNDecoder):
                 output = self.decoder(batch, edges,
-                                      pred_steps=self.config['pred_steps'],  # TODO 100?
+                                      pred_steps=self.config['pred_steps'],
                                       burn_in=self.config['burn_in'],
                                       burn_in_steps=self.config["timesteps"] - self.config["prediction_steps"])
             else:
+                # Implement mlp decoder?
                 raise NotImplementedError()
 
-            ground_truth = batch[:, :, 1:, :]
+            ground_truth = batch[:, :, 1:, :]  # TODO
 
-            loss = self.nll_loss(output, ground_truth) \
-                   + self.config['beta'] * self.kl_loss(prob)  # TODO why args.var in impl?
+            loss = losses.vae_loss(predictions=output,
+                                   targets=ground_truth,
+                                   edge_probs=prob,
+                                   n_atoms=self.config['n_atoms'],
+                                   n_edge_types=self.config['n_edge_types'],
+                                   log_prior=self.config['prior'],
+                                   add_const=self.config['add_const'],
+                                   eps=self.config['eps'],
+                                   beta=self.config['beta'],
+                                   prediction_variance=self.config['prediction_variance'])
 
             loss.backward()
             self.optimizer.step()
 
+            # Tensorboard writer
             self.writer.set_step((epoch - 1) * len(self.train_loader) + batch_id)
             self.writer.add_scalar('loss', loss.item())
+
             total_loss += loss.item()
             total_metrics += self._eval_metrics(output, ground_truth)
 
             if batch_id % self.config['log_step'] == 0:
-                self.logger.debug('Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
+                self.logger.info('Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
                     epoch,
                     batch_id * self.train_loader.batch_size,
                     len(self.train_loader.dataset),
@@ -203,13 +166,23 @@ class Trainer:
 
                 ground_truth = data[:, :, 1:, :]
 
-                loss = self.nll_loss(output, ground_truth) \
-                       + self.config['beta'] * self.kl_loss(prob)
+                loss = losses.vae_loss(predictions=output,
+                                       targets=ground_truth,
+                                       edge_probs=prob,
+                                       n_atoms=self.config['n_atoms'],
+                                       n_edge_types=self.config['n_edge_types'],
+                                       log_prior=self.config['prior'],
+                                       device=self.device,
+                                       add_const=self.config['add_const'],
+                                       eps=self.config['eps'],
+                                       beta=self.config['beta'],
+                                       prediction_variance=self.config['prediction_variance'])
 
                 total_loss += loss.item()
                 total_val_metrics += self._eval_metrics(output, ground_truth)
 
-                self.writer.set_step((epoch - 1) * len(self.valid_loader) + batch_id, 'valid')
+                # Tensorboard
+                self.writer.set_step((epoch - 1) * len(self.valid_loader) + batch_id, 'val')
                 self.writer.add_scalar('loss', loss.item())
 
         return {
@@ -222,6 +195,11 @@ class Trainer:
         Full training logic
         (Taken from https://github.com/victoresque/pytorch-template and modified)
         """
+        self.encoder.train()
+        self.decoder.train()
+
+        logs = []
+
         for epoch in range(0, self.config['epochs']):
             result = self._train_epoch(epoch)
 
@@ -238,6 +216,8 @@ class Trainer:
             # print logged informations to the screen
             for key, value in log.items():
                 self.logger.info('    {:15s}: {}'.format(str(key), value))
+
+            logs.append(log)
 
             # evaluate model performance according to configured metric, save best checkpoint as model_best
             best = False
@@ -267,3 +247,4 @@ class Trainer:
                     self.logger.info("Validation performance didn\'t improve for {} epochs. "
                                      "Training stops.".format(not_improved_count))
                     break
+        return logs

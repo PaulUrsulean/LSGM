@@ -22,7 +22,7 @@ def encode_onehot(labels):
     return labels_onehot
 
 
-def gen_fully_connected(n_elements):
+def gen_fully_connected(n_elements, device=None):
     # From https://github.com/ethanfetaya/NRI/blob/master/utils.py
     # Generate off-diagonal interaction graph
     off_diag = np.ones([n_elements, n_elements]) - np.eye(n_elements)
@@ -32,10 +32,13 @@ def gen_fully_connected(n_elements):
     rel_rec = torch.FloatTensor(rel_rec)
     rel_send = torch.FloatTensor(rel_send)
 
+    if device:
+        rel_rec, rel_send = rel_rec.to(device), rel_send.to(device)
+
     return rel_rec, rel_send
 
 
-def node2edge(m, adj_rec=None, adj_send=None, n_elements=None):
+def node2edge(m, adj_rec=None, adj_send=None):
     """
     Calculates edge embeddings
     :param m: Tensor with shape (SAMPLES, OBJECTS, FEATURES)
@@ -43,12 +46,6 @@ def node2edge(m, adj_rec=None, adj_send=None, n_elements=None):
     :param adj_send:
     :return:
     """
-    n_elements = m.size(2) if len(m.size()) > 3 else m.size(1)
-    if adj_send is None or adj_rec is None:
-        adj_rec, adj_send = gen_fully_connected(n_elements)
-        adj_rec = Variable(adj_rec)
-        adj_send = Variable(adj_send)
-
     outgoing = torch.matmul(adj_send, m)
     incoming = torch.matmul(adj_rec, m)
     return torch.cat([outgoing, incoming], dim=2)
@@ -62,12 +59,6 @@ def edge2node(m, adj_rec, adj_send):
     :param adj_send:
     :return:
     """
-    n_elements = m.size(2) if len(m.size()) > 3 else m.size(1)
-    if adj_send is None or adj_rec is None:
-        adj_rec, adj_send = gen_fully_connected(n_elements)
-        adj_rec = Variable(adj_rec)
-        adj_send = Variable(adj_send)
-
     incoming = torch.matmul(adj_rec.t(), m)
     return incoming / incoming.size(1)
 

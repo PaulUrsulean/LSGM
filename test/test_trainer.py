@@ -1,11 +1,11 @@
 import unittest
 
+import numpy as np
 import torch
 import torch.utils.data as data
-from torch.optim import lr_scheduler
 from torch.utils.data import TensorDataset
 
-from src.model import losses
+from src.config import generate_config
 from src.model.modules import MLPEncoder, RNNDecoder
 from src.trainer import Trainer
 
@@ -24,52 +24,68 @@ class MyTestCase(unittest.TestCase):
         decoder = RNNDecoder(n_in_node=n_feat, edge_types=n_edges, n_hid=n_hid)
 
         data_loaders = dict(
-            train_loader= data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat))),
-            valid_loader = data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat))),
-            test_loader = data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat)))
+            train_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat))),
+            valid_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat))),
+            test_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat)))
         )
 
-
-
-        config = dict(
-            edge_types=n_edges,
-            n_atoms=n_atoms,
-
-            epochs=30,
-
-            use_early_stopping=True,
-            early_stopping_patience=1,
-            early_stopping_mode='min', # in ["min", "max"]
-            early_stopping_metric='val_loss',
-
-            gpu_id=None,  # or None
-            log_dir='./logs_test',
-
-            timesteps=1,  # In forecast
-            prediction_steps=2,  #
-
-            temp=2,
-            hard=True,
-            burn_in=False,
-
-            beta=1,
-
-            log_step=1,
-
-            logger_config = ".",
-
-            pred_steps=1
-        )
+        config = generate_config(n_atoms=n_atoms,
+                                 n_edges=n_edges,
+                                 epochs=2,
+                                 use_early_stopping=True,
+                                 early_stopping_patience=1,
+                                 gpu_id=None,
+                                 log_dir='/tmp',
+                                 )
 
         trainer = Trainer(encoder=encoder,
                           decoder=decoder,
                           data_loaders=data_loaders,
-                          metrics=[losses.nll_gaussian(.1)], # What other metrics + allow full VAE loss
                           config=config)
         trainer.train()
+        # No errors thrown
 
     def test_overfit_epoch(self):
-        self.assertEqual(True, True)
+        torch.random.manual_seed(10)
+        np.random.seed(10)
+
+        n_examples = 1
+        n_atoms = 2
+        n_steps = 2
+        n_feat = 1
+        n_hid = 5
+        n_edges = 10
+
+        encoder = MLPEncoder(n_steps * n_feat, n_hid, n_edges)
+        decoder = RNNDecoder(n_in_node=n_feat, edge_types=n_edges, n_hid=n_hid)
+
+        data_loaders = dict(
+            train_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat))),
+            valid_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat))),
+            test_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat)))
+        )
+
+        config = generate_config(n_atoms=n_atoms,
+                                 n_edges=n_edges,
+                                 epochs=500,
+                                 use_early_stopping=False,
+                                 early_stopping_patience=2,
+                                 gpu_id=None,
+                                 log_dir='/tmp',
+                                 )
+
+        trainer = Trainer(encoder=encoder,
+                          decoder=decoder,
+                          data_loaders=data_loaders,
+                          config=config)
+
+        history = trainer.train()
+        last_log = history[-1]
+
+        # Assert training loss much smaller than validation loss
+        self.assertLess(last_log['loss'] * 10, last_log['val_loss'])
+        # Assert validation loss increased
+        self.assertGreater(last_log['val_loss'], history[0]['val_loss'])
 
 
 if __name__ == '__main__':
