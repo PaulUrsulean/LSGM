@@ -1,4 +1,5 @@
 # Heavily inspired by https://github.com/victoresque/pytorch-template/blob/master/trainer/trainer.py
+import json
 import logging
 import os
 import time
@@ -8,12 +9,11 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.autograd import Variable
 
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
-from src.model.utils import gen_fully_connected, my_softmax
 from src.model.modules import RNNDecoder
+from src.model.utils import gen_fully_connected, my_softmax
 
 
 class Trainer:
@@ -21,7 +21,8 @@ class Trainer:
     def __init__(self, encoder, decoder,
                  data_loaders,
                  config,
-                 metrics=[]):
+                 metrics=[],
+                 save_models=True):
         self.config = config
         self.data_loader = data_loaders
         self.metrics = metrics
@@ -49,19 +50,29 @@ class Trainer:
         exp_folder_name = time.asctime().replace(' ', '_').replace(':', '_')
         exp_folder_path = save_dir / exp_folder_name
         os.makedirs(exp_folder_path)
-        log_path = exp_folder_path
+        self.log_path = exp_folder_path
+        self.models_log_path = exp_folder_path / "models"
+        self.do_save_models = save_models
 
-        print(log_path)
+        self.save_config(exp_folder_path)
 
+        if save_models:
+            os.makedirs(self.models_log_path)
 
         # Logging config
-        setup_logging(log_path, config['logger_config'])
+        setup_logging(self.log_path, config['logger_config'])
         self.logger = logging.getLogger('trainer')
-        self.writer = WriterTensorboardX(log_path, self.logger, True)
+        self.writer = WriterTensorboardX(self.log_path, self.logger, True)
 
         # Early stopping behaviour
         assert (config['early_stopping_mode'] in ['min', 'max'])
         self.mnt_best = inf if config['early_stopping_mode'] == 'min' else -inf
+
+    def save_config(self, save_dir):
+        # Save config to file
+        with open(save_dir / 'config.json', 'w') as f:
+            # TODO: Use Pickle if more complex datatypes in dictionary
+            json.dump(self.config, f, indent=4)
 
     def _eval_metrics(self, output, target):
         """
@@ -76,7 +87,12 @@ class Trainer:
             self.writer.add_scalar('{}'.format(metric.__name__), acc_metrics[i])
         return acc_metrics
 
-    # TODO: encoder.cuda() et.
+    def save_models(self, epoch):
+        encoder_path = self.models_log_path / f'encoder_epoch{epoch}.pt'
+        decoder_path = self.models_log_path / f'decoder_epoch{epoch}.pt'
+
+        torch.save(self.encoder.state_dict(), encoder_path)
+        torch.save(self.decoder.state_dict(), decoder_path)
 
     def _train_epoch(self, epoch):
         """
@@ -262,6 +278,8 @@ class Trainer:
                     self.mnt_best = log[self.config['early_stopping_metric']]
                     not_improved_count = 0
                     best = True
+                    if self.do_save_models:
+                        self.save_models(epoch)
                 else:
                     not_improved_count += 1
 
