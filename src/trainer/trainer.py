@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.autograd import Variable
 
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
@@ -52,14 +53,14 @@ class Trainer:
 
         # Create unique foldername for current training run and save all there
         save_dir = Path(config['log_dir'])
-        exp_folder_name = time.asctime().replace(' ', '_').replace(':', '_')
+        exp_folder_name = time.asctime().replace(' ', '_').replace(':', '_') + str(hash(self))[:5]
         exp_folder_path = save_dir / exp_folder_name
         os.makedirs(exp_folder_path)
         self.log_path = exp_folder_path
         self.models_log_path = exp_folder_path / "models"
         self.do_save_models = save_models
 
-        self.save_config(exp_folder_path)
+        self.save_dict(self.config, 'config.json', exp_folder_path)
 
         if save_models:
             os.makedirs(self.models_log_path)
@@ -73,13 +74,13 @@ class Trainer:
         assert (config['early_stopping_mode'] in ['min', 'max'])
         self.mnt_best = inf if config['early_stopping_mode'] == 'min' else -inf
 
-    def save_config(self, save_dir):
+    def save_dict(self, dict, name, save_dir):
         # Save config to file
-        with open(save_dir / 'config.json', 'w') as f:
+        with open(save_dir / name, 'w') as f:
             # TODO: Use Pickle if more complex datatypes in dictionary
-            json.dump(self.config, f, indent=4)
+            json.dump(dict, f, indent=4)
 
-    def _eval_metrics(self, output, target, nll=None, kl=None):
+    def _eval_metrics(self, output, target, nll=None, kl=None, log=True):
         """
         From https://github.com/victoresque/pytorch-template/blob/master/trainer/trainer.py
         :param nll:
@@ -96,7 +97,8 @@ class Trainer:
                 acc_metrics[i] += kl
             else:
                 acc_metrics[i] += metric(output, target)
-            self.writer.add_scalar('{}'.format(metric.__name__), acc_metrics[i])
+            if log:
+                self.writer.add_scalar('{}'.format(metric.__name__), acc_metrics[i])
         return acc_metrics
 
     def save_models(self, epoch):
@@ -118,6 +120,10 @@ class Trainer:
 
         for batch_id, batch in enumerate(self.train_loader):
             batch = batch[0].to(self.device)
+
+            if batch.size(2) > self.config['timesteps']:
+                # In case more timesteps are available, clip to avaid errors with dimensions
+                batch = batch[:,:,:self.config['timesteps'], :]
 
             self.rel_rec, self.rel_send = gen_fully_connected(self.config['n_atoms'], device=self.device)
 
@@ -183,6 +189,74 @@ class Trainer:
 
         return log
 
+
+    def test(self):
+
+        # TODO Load best encoder/ decoder
+
+        self.encoder.eval()
+        self.decoder.eval()
+
+        total_loss = 0
+        total_test_metrics = np.zeros(len(self.metrics))
+        with torch.no_grad():
+            for batch_id, (data) in enumerate(self.test_loader):
+                data = data[0].to(self.device)
+
+                self.rel_rec, self.rel_send = gen_fully_connected(self.config['n_atoms'], device=self.device)
+
+                assert (data.size(2) - self.config['timesteps'] >= self.config['timesteps'])
+
+                data_encoder = data[:, :, :self.config['timesteps'], :].contiguous()
+                data_decoder = data[:, :, -self.config['timesteps']:, :].contiguous()
+
+                logits = self.encoder(data_encoder, self.rel_rec, self.rel_send)
+                edges = F.gumbel_softmax(logits, tau=self.config['temp'], hard=True)
+                prob = my_softmax(logits, -1)
+
+
+                output = self.decoder(data_decoder,
+                                          rel_type=edges,
+                                          rel_rec=self.rel_rec,
+                                          rel_send=self.rel_send,
+                                          pred_steps=1)
+
+                ground_truth = data_decoder[:, :, 1:, :]
+
+                loss, nll, kl = losses.vae_loss(predictions=output,
+                                                targets=ground_truth,
+                                                edge_probs=prob,
+                                                n_atoms=self.config['n_atoms'],
+                                                n_edge_types=self.config['n_edge_types'],
+                                                log_prior=self.config['prior'],
+                                                device=self.device,
+                                                add_const=self.config['add_const'],
+                                                eps=self.config['eps'],
+                                                beta=self.config['beta'],
+                                                prediction_variance=self.config['prediction_variance'])
+
+
+                total_loss += loss.item()
+                total_test_metrics += self._eval_metrics(output, ground_truth, nll=nll, kl=kl, log=False)
+
+        res = {
+            'test_loss': total_loss / len(self.test_loader),
+            'test_metrics': (total_test_metrics / len(self.test_loader)).tolist()
+        }
+
+        # Tidy up
+        log = {}
+        for key, value in res.items():
+            if key == 'test_metrics':
+                log.update({'test_' + mtr.__name__: value[i] for i, mtr in enumerate(self.metrics)})
+            else:
+                log[key] = value
+
+        self.save_dict(log, 'test.json', self.log_path)
+
+        return log
+
+
     def _val_loss(self, epoch):
         """
         Calculate validation loss
@@ -198,13 +272,17 @@ class Trainer:
             for batch_id, (data) in enumerate(self.valid_loader):
                 data = data[0].to(self.device)
 
+                if data.size(2) > self.config['timesteps']:
+                    # In case more timesteps are available, clip to avaid errors with dimensions
+                    data = data[:, :, :self.config['timesteps'], :]
+
                 logits = self.encoder(data, self.rel_rec, self.rel_send)
-                edges = F.gumbel_softmax(logits, tau=self.config['temp'], hard=self.config['hard'])
+                edges = F.gumbel_softmax(logits, tau=self.config['temp'], hard=True)
                 prob = my_softmax(logits, -1)
 
                 if isinstance(self.decoder, RNNDecoder):
                     output = self.decoder(data, edges,
-                                          pred_steps=self.config['pred_steps'],
+                                          pred_steps=1, # Their validation loss uses teacher forcing
                                           burn_in=self.config['burn_in'],
                                           burn_in_steps=self.config['timesteps'] - self.config['prediction_steps'])
                 else:
@@ -300,3 +378,42 @@ class Trainer:
                                      "Training stops.".format(not_improved_count))
                     break
         return logs
+
+"""
+    def _extract_latent_graphs(self):
+        self.encoder.eval()
+
+        all_edges = []
+        n_atoms = self.config['n_atoms']
+        edge_types = self.config['edge_types']
+        sum_edges = Variable(torch.zeros(n_atoms, n_atoms, edge_types))
+
+        with torch.no_grad():
+            for batch_id, (data) in enumerate(self.data_loader):
+                data = data[0].to(self.device)
+
+                self.rel_rec, self.rel_send = gen_fully_connected(data.size(1))
+
+                logits = self.encoder(data, self.rel_rec, self.rel_send)
+                edges = F.gumbel_softmax(logits, tau=self.config['temp'], hard=True)
+
+                # Convert from n x (n-1) matrix to n x n matrix
+                full_graph = torch.zeros(len(data), n_atoms, n_atoms, edge_types)
+                edges = edges.view(-1, n_atoms, n_atoms - 1, edge_types)
+                for i in range(n_atoms):
+                    for j in range(n_atoms):
+                        if i == j:
+                            continue
+                        elif i > j:
+                            full_graph[:, i, j, :] = edges[:, i, j, :]
+                        else:
+                            full_graph[:, i, j, :] = edges[:, i, j - 1, :]
+
+
+                for i, e in enumerate(edges):
+                    all_edges.append(e.numpy())
+                    sum_edges += full_graph[i]
+
+        return all_edges, (sum_edges / len(self.data_loader)).numpy()
+
+"""
