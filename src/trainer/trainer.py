@@ -26,7 +26,9 @@ class Trainer:
                                           betas=config['adam_betas'],
                                           params=list(encoder.parameters()) + list(decoder.parameters()))
 
-        self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, config['scheduler_stepsize'])
+        self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,
+                                                            step_size=config['scheduler_stepsize'],
+                                                            gamma=config['scheduler_gamma'])
         self.device = torch.device('cpu') if config['gpu_id'] is None else torch.device(f'cuda:{config["gpu_id"]}')
 
         # Move models to gpu

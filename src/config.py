@@ -23,7 +23,9 @@ _default_config = dict(
     pred_steps=1,
 
     scheduler_stepsize=200,
-    adam_learning_rate=1e-3,
+    scheduler_gamma=0.5, # Decay rate of learning rate
+
+    adam_learning_rate=0.0005, # normally 1e-3
     adam_betas=(0.9, 0.999),
 
     prior=None,
