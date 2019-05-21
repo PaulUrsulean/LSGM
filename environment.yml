@@ -14,5 +14,10 @@ dependencies:
   - seaborn
   - matplotlib
   - tqdm
-  - scikit-learn
+  - sklearn
+  - tensorboardx
+  - tensorflow
+  - jupyterlab
+  - scikit-optimize
+  - pytest
 
