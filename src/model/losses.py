@@ -27,7 +27,7 @@ def vae_loss(predictions,
     :param eps: Small value to avaid numerical issues
     :param beta: Factor for the KL-divergence. Choose value > 1 for stronger emphasis on the latent prior.
     :param prediction_variance: Variance of the future predictions output, which is a normal distribution.
-    :return: Scalar loss value
+    :return: Tuple of (total loss, nll, kl-div)
     """
     nll = nll_gaussian(predictions, targets, prediction_variance, add_const)
     if log_prior is None:
@@ -35,7 +35,7 @@ def vae_loss(predictions,
     else:
         log_prior = torch.Tensor(log_prior).to(device or torch.device('cpu'))
         kl_div = kl_categorical(edge_probs, log_prior, n_atoms, eps=eps)
-    return nll + beta * kl_div
+    return nll + beta * kl_div, nll, kl_div
 
 
 """
