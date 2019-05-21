@@ -1,5 +1,5 @@
 _default_config = dict(
-    epochs=30,
+    epochs=500,
 
     use_early_stopping=False,
     early_stopping_patience=1,
@@ -8,9 +8,12 @@ _default_config = dict(
 
     gpu_id=None,  # or None
 
-
-    timesteps=1,  # In forecast
-    prediction_steps=2,  #
+    # Specifically, we run the encoder on the first 49 time
+    # steps (same as in training and validation), then predict with
+    # our decoder the following 20 unseen time steps.
+    timesteps=49, # In ground truth
+    prediction_steps=20,
+    pred_steps=20, # Investigate duplicate
 
     temp=0.5,
     hard=False,
@@ -20,8 +23,6 @@ _default_config = dict(
     log_dir='./logs',
     logger_config="",  # str
     store_models=True,
-
-    pred_steps=1,
 
     scheduler_stepsize=200,
     scheduler_gamma=0.5,  # Decay rate of learning rate
