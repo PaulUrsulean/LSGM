@@ -1,33 +1,68 @@
 _default_config = dict(
-    epochs=30,
+    epochs=500,
 
-    use_early_stopping=False,
-    early_stopping_patience=1,
-    early_stopping_mode='min',  # in ["min", "max"]
-    early_stopping_metric='val_loss',
+    globals=dict(
+        seed=42
+    ),
 
-    gpu_id=None,  # or None
+    training=dict(
+        batch_size=128
+    ),
 
+    data=dict(
+        name='springs',
+        springs=dict(
+            suffix='_springs5',
+            dims=4
+        )
+    ),
 
-    timesteps=1,  # In forecast
-    prediction_steps=2,  #
+    adam_learning_rate=0.0005,
+    adam_betas=(0.9, 0.999),
+
+    model=dict(
+        save=True,
+        factor_graph=True,
+        skip_first=False,
+        hard=False,
+        dynamic_graph=False,
+        encoder=dict(
+            model='mlp',  # or CNN
+            hidden_dim=256,
+            dropout=0.5
+        ),
+        decoder=dict(
+            model='rnn',  # or MLP
+            hidden_dim=256,
+            dropout=0.0
+        )),
 
     temp=0.5,
     hard=False,
     burn_in=False,
+
+    gpu_id=None,
+
+    use_early_stopping=False,
+    early_stopping_patience=20,
+    early_stopping_mode='min',  # in ["min", "max"]
+    early_stopping_metric='val_mse_loss',
+
+    # or None
+
+    # Specifically, we run the encoder on the first 49 time
+    # steps (same as in training and validation), then predict with
+    # our decoder the following 20 unseen time steps.
+    timesteps=49,  # In ground truth
+    prediction_steps=10,
 
     log_step=10,
     log_dir='./logs',
     logger_config="",  # str
     store_models=True,
 
-    pred_steps=1,
-
     scheduler_stepsize=200,
     scheduler_gamma=0.5,  # Decay rate of learning rate
-
-    adam_learning_rate=0.0005,  # normally 1e-3
-    adam_betas=(0.9, 0.999),
 
     prior=None,
     add_const=False,
