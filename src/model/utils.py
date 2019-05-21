@@ -1,9 +1,16 @@
 import numpy as np
 import torch
-from torch.autograd import Variable
+import torch.nn.functional as F
 from torch.distributions import Gumbel
 
 gumbel = Gumbel(0, 1)
+
+
+def my_softmax(input, axis=1):
+    # From https://github.com/ethanfetaya/NRI/blob/master/utils.py
+    trans_input = input.transpose(axis, 0).contiguous()
+    soft_max_1d = F.softmax(trans_input)
+    return soft_max_1d.transpose(axis, 0)
 
 
 def encode_onehot(labels):

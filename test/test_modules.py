@@ -76,5 +76,47 @@ class MLPEncoderTests(unittest.TestCase):
         self.assertLess(losses[-1], losses[0])
 
 
+class CNNEncoderTests(unittest.TestCase):
+
+    def __init__(self, arg):
+        super(CNNEncoderTests, self).__init__(arg)
+
+        self.N_STEPS = 14 # Less than 14 does not work do tue convolution operations without padding looses dimensions
+        self.N_OBJ = 3
+        self.N_FEAT = 7
+        self.N_EDGE_TYPES = 4
+        self.N_HIDDEN = 33
+
+    def test_cnn_encoder_shape(self):
+        encoder = modules.CNNEncoder(self.N_FEAT, self.N_HIDDEN, self.N_EDGE_TYPES)
+
+        inputs = torch.rand((100, self.N_OBJ, self.N_STEPS, self.N_FEAT))
+        rel_rec, rel_send = go.gen_fully_connected(self.N_OBJ)
+        out = encoder(inputs, rel_rec, rel_send)
+
+        self.assertEqual(out.size(), (100, self.N_OBJ * (self.N_OBJ - 1), self.N_EDGE_TYPES))
+
+    def test_cnn_encoder_can_learn(self):
+        data = torch.rand((100, self.N_OBJ, self.N_STEPS, self.N_FEAT))
+
+        encoder = modules.CNNEncoder(self.N_FEAT, self.N_HIDDEN, self.N_EDGE_TYPES)
+
+        rel_rec, rel_send = go.gen_fully_connected(self.N_OBJ)
+
+        from torch.optim import SGD
+        opt = SGD(encoder.parameters(), lr=.0001)
+        opt.zero_grad()
+
+        losses = []
+        for i in range(2):
+            out = encoder(data, rel_rec, rel_send)
+            loss = torch.norm(out, 2)
+            losses.append(loss.item())
+            loss.backward()
+            opt.step()
+
+        self.assertLess(losses[-1], losses[0])
+
+
 if __name__ == '__main__':
     unittest.main()

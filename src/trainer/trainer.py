@@ -9,7 +9,7 @@ from torch.autograd import Variable
 
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
-from src.model.utils import gen_fully_connected
+from src.model.utils import gen_fully_connected, my_softmax
 from src.model.modules import RNNDecoder
 
 
@@ -82,7 +82,7 @@ class Trainer:
 
             logits = self.encoder(batch, self.rel_rec, self.rel_send)
             edges = F.gumbel_softmax(logits, tau=self.config['temp'], hard=self.config['hard'])
-            prob = F.softmax(edges)  # TODO: Should we use my_softmax from Kipf impl?
+            prob = my_softmax(logits, -1)
 
             if isinstance(self.decoder, RNNDecoder):
                 output = self.decoder(batch, edges,
@@ -90,8 +90,11 @@ class Trainer:
                                       burn_in=self.config['burn_in'],
                                       burn_in_steps=self.config["timesteps"] - self.config["prediction_steps"])
             else:
-                # Implement mlp decoder?
-                raise NotImplementedError()
+                output = self.decoder(batch,
+                                      rel_type=edges,
+                                      rel_rec=self.rel_rec,
+                                      rel_send=self.rel_send,
+                                      pred_steps=self.config['prediction_steps'])
 
             ground_truth = batch[:, :, 1:, :]  # TODO
 
@@ -154,7 +157,7 @@ class Trainer:
 
                 logits = self.encoder(data, self.rel_rec, self.rel_send)
                 edges = F.gumbel_softmax(logits, tau=self.config['temp'], hard=self.config['hard'])
-                prob = F.softmax(edges)
+                prob = my_softmax(logits, -1)
 
                 if isinstance(self.decoder, RNNDecoder):
                     output = self.decoder(data, edges,
@@ -162,7 +165,11 @@ class Trainer:
                                           burn_in=self.config['burn_in'],
                                           burn_in_steps=self.config['timesteps'] - self.config['prediction_steps'])
                 else:
-                    raise NotImplementedError()
+                    output = self.decoder(data,
+                                          rel_type=edges,
+                                          rel_rec=self.rel_rec,
+                                          rel_send=self.rel_send,
+                                          pred_steps=self.config['prediction_steps'])
 
                 ground_truth = data[:, :, 1:, :]
 
