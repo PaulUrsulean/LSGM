@@ -1,6 +1,9 @@
 # Heavily inspired by https://github.com/victoresque/pytorch-template/blob/master/trainer/trainer.py
 import logging
+import os
+import time
 from math import inf
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -41,10 +44,20 @@ class Trainer:
 
         self.do_validation = True
 
+        # Create unique foldername for current training run and save all there
+        save_dir = Path(config['log_dir'])
+        exp_folder_name = time.asctime().replace(' ', '_').replace(':', '_')
+        exp_folder_path = save_dir / exp_folder_name
+        os.makedirs(exp_folder_path)
+        log_path = exp_folder_path
+
+        print(log_path)
+
+
         # Logging config
-        setup_logging(config['log_dir'], config['logger_config'])
+        setup_logging(log_path, config['logger_config'])
         self.logger = logging.getLogger('trainer')
-        self.writer = WriterTensorboardX(config['log_dir'], self.logger, True)
+        self.writer = WriterTensorboardX(log_path, self.logger, True)
 
         # Early stopping behaviour
         assert (config['early_stopping_mode'] in ['min', 'max'])

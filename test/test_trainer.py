@@ -34,8 +34,7 @@ class MyTestCase(unittest.TestCase):
                                  epochs=2,
                                  use_early_stopping=True,
                                  early_stopping_patience=1,
-                                 gpu_id=None,
-                                 log_dir='/tmp',
+                                 gpu_id=None
                                  )
 
         trainer = Trainer(encoder=encoder,
@@ -72,7 +71,7 @@ class MyTestCase(unittest.TestCase):
                                  use_early_stopping=False,
                                  early_stopping_patience=2,
                                  gpu_id=None,
-                                 log_dir='/tmp',
+                                 log_dir='/tmp'
                                  )
 
         trainer = Trainer(encoder=encoder,

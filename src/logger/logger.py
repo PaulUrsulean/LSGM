@@ -25,6 +25,7 @@ SOFTWARE.
 import logging
 import logging.config
 import os
+import time
 from pathlib import Path
 from src.logger.utils import read_json
 
@@ -37,7 +38,11 @@ def setup_logging(save_dir, log_config="", default_level=logging.INFO):
         log_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logger_config.json")
 
     log_config = Path(log_config)
+
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
     save_dir = Path(save_dir)
+
     if log_config.is_file():
         config = read_json(log_config)
         # modify logging paths based on run config
