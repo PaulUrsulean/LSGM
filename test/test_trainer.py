@@ -49,10 +49,10 @@ class MyTestCase(unittest.TestCase):
         np.random.seed(10)
 
         n_examples = 1
-        n_atoms = 2
-        n_steps = 5
-        n_feat = 1
-        n_hid = 5
+        n_atoms = 3
+        n_steps = 7
+        n_feat = 5
+        n_hid = 100
         n_edges = 2
         n_epochs = 500
 
@@ -84,8 +84,8 @@ class MyTestCase(unittest.TestCase):
 
         # Assert training loss smaller than validation loss
         self.assertLess(last_log['loss'], last_log['val_loss'])
-        # Assert validation loss increased in second half of training
-        # self.assertGreater(last_log['val_loss'], history[n_epochs//2]['val_loss'])
+        # Assert validation mse loss increased in second half of training
+        self.assertGreater(last_log['val_mse_loss'], history[n_epochs//2]['val_mse_loss'])
 
 
 if __name__ == '__main__':

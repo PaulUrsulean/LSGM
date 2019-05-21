@@ -15,17 +15,22 @@ from src.model import losses
 from src.model.modules import RNNDecoder
 from src.model.utils import gen_fully_connected, my_softmax
 
+def nll():
+    pass
+def kl():
+    pass
+
 
 class Trainer:
 
     def __init__(self, encoder, decoder,
                  data_loaders,
                  config,
-                 metrics=[],
+
                  save_models=True):
         self.config = config
         self.data_loader = data_loaders
-        self.metrics = metrics
+        self.metrics = [F.mse_loss, nll, kl]
         self.optimizer = torch.optim.Adam(lr=config['adam_learning_rate'],
                                           betas=config['adam_betas'],
                                           params=list(encoder.parameters()) + list(decoder.parameters()))
@@ -74,16 +79,23 @@ class Trainer:
             # TODO: Use Pickle if more complex datatypes in dictionary
             json.dump(self.config, f, indent=4)
 
-    def _eval_metrics(self, output, target):
+    def _eval_metrics(self, output, target, nll=None, kl=None):
         """
         From https://github.com/victoresque/pytorch-template/blob/master/trainer/trainer.py
+        :param nll:
+        :param kl:
         :param output:
         :param target:
         :return:
         """
         acc_metrics = np.zeros(len(self.metrics))
         for i, metric in enumerate(self.metrics):
-            acc_metrics[i] += metric(output, target)
+            if metric.__name__ == "nll":
+                acc_metrics[i] += nll
+            elif metric.__name__ == 'kl':
+                acc_metrics[i] += kl
+            else:
+                acc_metrics[i] += metric(output, target)
             self.writer.add_scalar('{}'.format(metric.__name__), acc_metrics[i])
         return acc_metrics
 
@@ -129,7 +141,7 @@ class Trainer:
 
             ground_truth = batch[:, :, 1:, :]  # TODO
 
-            loss = losses.vae_loss(predictions=output,
+            loss, nll, kl = losses.vae_loss(predictions=output,
                                    targets=ground_truth,
                                    edge_probs=prob,
                                    n_atoms=self.config['n_atoms'],
@@ -148,7 +160,7 @@ class Trainer:
             self.writer.add_scalar('loss', loss.item())
 
             total_loss += loss.item()
-            total_metrics += self._eval_metrics(output, ground_truth)
+            total_metrics += self._eval_metrics(output, ground_truth, nll=nll, kl=kl)
 
             if batch_id % self.config['log_step'] == 0:
                 self.logger.info('Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
@@ -204,7 +216,7 @@ class Trainer:
 
                 ground_truth = data[:, :, 1:, :]
 
-                loss = losses.vae_loss(predictions=output,
+                loss, nll, kl = losses.vae_loss(predictions=output,
                                        targets=ground_truth,
                                        edge_probs=prob,
                                        n_atoms=self.config['n_atoms'],
@@ -216,12 +228,12 @@ class Trainer:
                                        beta=self.config['beta'],
                                        prediction_variance=self.config['prediction_variance'])
 
-                total_loss += loss.item()
-                total_val_metrics += self._eval_metrics(output, ground_truth)
-
                 # Tensorboard
                 self.writer.set_step((epoch - 1) * len(self.valid_loader) + batch_id, 'val')
                 self.writer.add_scalar('loss', loss.item())
+
+                total_loss += loss.item()
+                total_val_metrics += self._eval_metrics(output, ground_truth, nll=nll, kl=kl)
 
         return {
             'val_loss': total_loss / len(self.valid_loader),
