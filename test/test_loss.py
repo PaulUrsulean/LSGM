@@ -19,7 +19,7 @@ class TestLoss(unittest.TestCase):
         self.prediction_variance = 5e-5
 
     def test_loss_uniform_prior(self):
-        loss = losses.vae_loss(predictions=self.predictions,
+        loss, nll, kl = losses.vae_loss(predictions=self.predictions,
                                targets=self.targets,
                                edge_probs=self.edge_probs,
                                n_atoms=self.n_atoms,
@@ -33,7 +33,7 @@ class TestLoss(unittest.TestCase):
 
     def test_loss_manual_prior(self):
         prior = np.log([.4, .6])
-        loss = losses.vae_loss(predictions=self.predictions,
+        loss, nll, kl = losses.vae_loss(predictions=self.predictions,
                                targets=self.targets,
                                edge_probs=self.edge_probs,
                                n_atoms=self.n_atoms,
