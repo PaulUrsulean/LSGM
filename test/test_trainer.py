@@ -13,14 +13,13 @@ from src.trainer import Trainer
 class MyTestCase(unittest.TestCase):
 
     def test_run_epoch(self):
-        n_examples = 5
+        n_examples = 1
         n_atoms = 5
         n_steps = 100
         n_feat = 7
         n_hid = 20
         n_edges = 3
-        n_timesteps = 4
-
+        n_timesteps = 10
 
         data_loaders = dict(
             train_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat))),
@@ -55,13 +54,13 @@ class MyTestCase(unittest.TestCase):
         n_steps = 30
         n_feat = 7
         n_hid = 20
-        n_timesteps=6
+        n_timesteps = 6
         n_edges = 3
 
         data_loaders = dict(
             train_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_timesteps, n_feat))),
             valid_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_timesteps, n_feat))),
-            test_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat)))
+            test_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, 30, n_feat)))
         )
 
         config = generate_config(n_atoms=n_atoms,
@@ -85,9 +84,6 @@ class MyTestCase(unittest.TestCase):
         # No errors thrown
 
     def test_overfit_epoch(self):
-        torch.random.manual_seed(10)
-        np.random.seed(10)
-
         n_examples = 1
         n_atoms = 3
         n_steps = 50
@@ -95,8 +91,7 @@ class MyTestCase(unittest.TestCase):
         n_hid = 100
         n_edges = 2
         n_epochs = 500
-        n_timesteps=5
-
+        n_timesteps = 10
 
         data_loaders = dict(
             train_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_timesteps, n_feat))),
@@ -115,7 +110,7 @@ class MyTestCase(unittest.TestCase):
                                  )
 
         encoder = MLPEncoder(config['timesteps'] * n_feat, n_hid, n_edges)
-        #encoder = CNNEncoder(n_feat, n_hid, n_edges)
+        # encoder = CNNEncoder(n_feat, n_hid, n_edges)
         decoder = RNNDecoder(n_in_node=n_feat, edge_types=n_edges, n_hid=n_hid)
 
         trainer = Trainer(encoder=encoder,
@@ -129,7 +124,7 @@ class MyTestCase(unittest.TestCase):
         # Assert training loss smaller than validation loss
         self.assertLess(last_log['loss'], last_log['val_loss'])
         # Assert validation mse loss increased in second half of training
-        self.assertGreater(last_log['val_mse_loss'], history[n_epochs//2]['val_mse_loss'])
+        self.assertGreater(last_log['val_mse_loss'], history[n_epochs // 2]['val_mse_loss'])
 
 
 if __name__ == '__main__':

@@ -27,11 +27,14 @@ class Trainer:
     def __init__(self, encoder, decoder,
                  data_loaders,
                  config,
-
                  save_models=True):
         self.config = config
         self.data_loader = data_loaders
         self.metrics = [F.mse_loss, nll, kl]
+
+        torch.random.manual_seed(config['globals']['seed'])
+        np.random.seed(config['globals']['seed'])
+
         self.optimizer = torch.optim.Adam(lr=config['adam_learning_rate'],
                                           betas=config['adam_betas'],
                                           params=list(encoder.parameters()) + list(decoder.parameters()))
@@ -135,7 +138,7 @@ class Trainer:
 
             if isinstance(self.decoder, RNNDecoder):
                 output = self.decoder(batch, edges,
-                                      pred_steps=self.config['pred_steps'],
+                                      pred_steps=self.config['prediction_steps'],
                                       burn_in=self.config['burn_in'],
                                       burn_in_steps=self.config["timesteps"] - self.config["prediction_steps"])
             else:
