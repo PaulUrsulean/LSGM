@@ -9,78 +9,108 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.autograd import Variable
 
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
 from src.model.modules import RNNDecoder
-from src.model.utils import gen_fully_connected, my_softmax
-
-def nll():
-    pass
-def kl():
-    pass
+from src.model.utils import gen_fully_connected, my_softmax, nll, kl
 
 
-class Trainer:
+class Model:
 
     def __init__(self, encoder, decoder,
                  data_loaders,
-                 config,
-                 save_models=True):
+                 config):
+
+        # Parse Config and set model attributes
+        self.parse_config(config)
         self.config = config
+
+        # Random Seeds
+        torch.random.manual_seed(self.random_seed)
+        np.random.seed(self.random_seed)
+
+        # Data Loaders
         self.data_loader = data_loaders
+        self.train_loader = data_loaders['train_loader']
+        self.valid_loader = data_loaders['valid_loader']
+        self.test_loader = data_loaders['test_loader']
+
         self.metrics = [F.mse_loss, nll, kl]
 
-        torch.random.manual_seed(config['globals']['seed'])
-        np.random.seed(config['globals']['seed'])
-
-        self.optimizer = torch.optim.Adam(lr=config['adam_learning_rate'],
-                                          betas=config['adam_betas'],
+        self.optimizer = torch.optim.Adam(lr=self.learning_rate,
+                                          betas=self.learning_betas,
                                           params=list(encoder.parameters()) + list(decoder.parameters()))
 
         self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer,
-                                                            step_size=config['scheduler_stepsize'],
-                                                            gamma=config['scheduler_gamma'])
-        self.device = torch.device('cpu') if config['gpu_id'] is None else torch.device(f'cuda:{config["gpu_id"]}')
+                                                            step_size=self.scheduler_stepsize,
+                                                            gamma=self.scheduler_gamma)
+
+        self.device = torch.device('cpu') if self.gpu_id is None else torch.device(f'cuda:{self.gpu_id}')
 
         # Move models to gpu
         self.encoder = encoder.to(self.device)
         self.decoder = decoder.to(self.device)
 
-        self.train_loader = data_loaders['train_loader']
-        self.valid_loader = data_loaders['valid_loader']
-        self.test_loader = data_loaders['test_loader']
-
         self.do_validation = True
 
         # Create unique foldername for current training run and save all there
-        save_dir = Path(config['log_dir'])
+        self.setup_save_dir(config)
+
+        # Logging config
+        setup_logging(self.log_path, self.logger_config_path)
+        self.logger = logging.getLogger('trainer')
+        self.writer = WriterTensorboardX(self.log_path, self.logger, True)
+
+        # Early stopping behaviour
+        assert (self.early_stopping_mode in ['min', 'max'])
+        self.mnt_best = inf if self.early_stopping_mode == 'min' else -inf
+
+    def setup_save_dir(self, config):
+        save_dir = Path(config['logging']['log_dir'])
         exp_folder_name = time.asctime().replace(' ', '_').replace(':', '_') + str(hash(self))[:5]
         exp_folder_path = save_dir / exp_folder_name
         os.makedirs(exp_folder_path)
         self.log_path = exp_folder_path
         self.models_log_path = exp_folder_path / "models"
-        self.do_save_models = save_models
-
         self.save_dict(self.config, 'config.json', exp_folder_path)
-
-        if save_models:
+        if self.do_save_models:
             os.makedirs(self.models_log_path)
 
-        # Logging config
-        setup_logging(self.log_path, config['logger_config'])
-        self.logger = logging.getLogger('trainer')
-        self.writer = WriterTensorboardX(self.log_path, self.logger, True)
+    def parse_config(self, config):
+        self.random_seed = config['globals']['seed']
+        self.logger_config_path = config['logging']['logger_config']
+        self.early_stopping_mode = config['training']['early_stopping_mode']
+        self.use_early_stopping = config['training']['use_early_stopping']
+        self.early_stopping_patience = config['training']['early_stopping_patience']
+        self.early_stopping_metric = config['training']['early_stopping_metric']
+        self.learning_rate = config['training']['optimizer']['learning_rate']
+        self.learning_betas = config['training']['optimizer']['betas']
+        self.scheduler_stepsize = config['training']['scheduler']['stepsize']
+        self.scheduler_gamma = config['training']['scheduler']['gamma']
+        self.gpu_id = config["training"]["gpu_id"]
+        self.do_save_models = config['logging']['store_models']
+        self.timesteps = config['data']['timesteps']
+        self.prediction_steps = config['model']['prediction_steps']
+        self.burn_in = config['model']['burn_in']
+        self.temp = config['model']['temp']
+        self.sample_hard = config['model']['hard']
 
-        # Early stopping behaviour
-        assert (config['early_stopping_mode'] in ['min', 'max'])
-        self.mnt_best = inf if config['early_stopping_mode'] == 'min' else -inf
+        self.n_edge_types = config['model']['n_edge_types']
+        self.n_atoms = config['data']['n_atoms']
+        self.log_prior = config['globals']['prior']  # TODO
+        self.add_const = config['globals']['add_const']
+        self.eps = config['globals']['eps']
+        self.loss_beta = config['loss']['beta']
+        self.prediction_var = config['model']['decoder']['prediction_variance']
+
+        self.epochs = config['training']['epochs']
+
+        self.log_step = config['logging']['log_step']
 
     def save_dict(self, dict, name, save_dir):
         # Save config to file
         with open(save_dir / name, 'w') as f:
-            # TODO: Use Pickle if more complex datatypes in dictionary
             json.dump(dict, f, indent=4)
 
     def _eval_metrics(self, output, target, nll=None, kl=None, log=True):
@@ -124,42 +154,45 @@ class Trainer:
         for batch_id, batch in enumerate(self.train_loader):
             batch = batch[0].to(self.device)
 
-            if batch.size(2) > self.config['timesteps']:
+            if batch.size(2) > self.timesteps:
                 # In case more timesteps are available, clip to avaid errors with dimensions
-                batch = batch[:,:,:self.config['timesteps'], :]
+                batch = batch[:, :, :self.timesteps, :]
 
-            self.rel_rec, self.rel_send = gen_fully_connected(self.config['n_atoms'], device=self.device)
+            self.rel_rec, self.rel_send = gen_fully_connected(self.n_atoms
+                                                              , device=self.device)
 
             self.optimizer.zero_grad()
 
             logits = self.encoder(batch, self.rel_rec, self.rel_send)
-            edges = F.gumbel_softmax(logits, tau=self.config['temp'], hard=self.config['hard'])
+            edges = F.gumbel_softmax(logits, tau=self.temp, hard=self.sample_hard)
             prob = my_softmax(logits, -1)
 
             if isinstance(self.decoder, RNNDecoder):
                 output = self.decoder(batch, edges,
-                                      pred_steps=self.config['prediction_steps'],
-                                      burn_in=self.config['burn_in'],
-                                      burn_in_steps=self.config["timesteps"] - self.config["prediction_steps"])
+                                      pred_steps=self.prediction_steps
+                                      ,
+                                      burn_in=self.burn_in,
+                                      burn_in_steps=self.timesteps - self.prediction_steps)
             else:
                 output = self.decoder(batch,
                                       rel_type=edges,
                                       rel_rec=self.rel_rec,
                                       rel_send=self.rel_send,
-                                      pred_steps=self.config['prediction_steps'])
+                                      pred_steps=self.prediction_steps
+                                      )
 
             ground_truth = batch[:, :, 1:, :]  # TODO
 
             loss, nll, kl = losses.vae_loss(predictions=output,
-                                   targets=ground_truth,
-                                   edge_probs=prob,
-                                   n_atoms=self.config['n_atoms'],
-                                   n_edge_types=self.config['n_edge_types'],
-                                   log_prior=self.config['prior'],
-                                   add_const=self.config['add_const'],
-                                   eps=self.config['eps'],
-                                   beta=self.config['beta'],
-                                   prediction_variance=self.config['prediction_variance'])
+                                            targets=ground_truth,
+                                            edge_probs=prob,
+                                            n_atoms=self.n_atoms,
+                                            n_edge_types=self.n_edge_types,
+                                            log_prior=self.log_prior,
+                                            add_const=self.add_const,
+                                            eps=self.eps,
+                                            beta=self.loss_beta,
+                                            prediction_variance=self.config['model']['decoder']['prediction_variance'])
 
             loss.backward()
             self.optimizer.step()
@@ -171,7 +204,7 @@ class Trainer:
             total_loss += loss.item()
             total_metrics += self._eval_metrics(output, ground_truth, nll=nll, kl=kl)
 
-            if batch_id % self.config['log_step'] == 0:
+            if batch_id % self.log_step == 0:
                 self.logger.info('Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
                     epoch,
                     batch_id * self.train_loader.batch_size,
@@ -192,9 +225,7 @@ class Trainer:
 
         return log
 
-
     def test(self):
-
         # TODO Load best encoder/ decoder
 
         self.encoder.eval()
@@ -206,38 +237,36 @@ class Trainer:
             for batch_id, (data) in enumerate(self.test_loader):
                 data = data[0].to(self.device)
 
-                self.rel_rec, self.rel_send = gen_fully_connected(self.config['n_atoms'], device=self.device)
+                self.rel_rec, self.rel_send = gen_fully_connected(self.n_atoms
+                                                                  , device=self.device)
 
-                assert (data.size(2) - self.config['timesteps'] >= self.config['timesteps'])
+                assert (data.size(2) - self.timesteps >= self.timesteps)
 
-                data_encoder = data[:, :, :self.config['timesteps'], :].contiguous()
-                data_decoder = data[:, :, -self.config['timesteps']:, :].contiguous()
+                data_encoder = data[:, :, :self.timesteps, :].contiguous()
+                data_decoder = data[:, :, -self.timesteps:, :].contiguous()
 
                 logits = self.encoder(data_encoder, self.rel_rec, self.rel_send)
-                edges = F.gumbel_softmax(logits, tau=self.config['temp'], hard=True)
+                edges = F.gumbel_softmax(logits, tau=self.temp, hard=True)
                 prob = my_softmax(logits, -1)
 
-
                 output = self.decoder(data_decoder,
-                                          rel_type=edges,
-                                          rel_rec=self.rel_rec,
-                                          rel_send=self.rel_send,
-                                          pred_steps=1)
+                                      rel_type=edges,
+                                      rel_rec=self.rel_rec,
+                                      rel_send=self.rel_send,
+                                      pred_steps=1)
 
                 ground_truth = data_decoder[:, :, 1:, :]
 
                 loss, nll, kl = losses.vae_loss(predictions=output,
                                                 targets=ground_truth,
                                                 edge_probs=prob,
-                                                n_atoms=self.config['n_atoms'],
-                                                n_edge_types=self.config['n_edge_types'],
-                                                log_prior=self.config['prior'],
-                                                device=self.device,
-                                                add_const=self.config['add_const'],
-                                                eps=self.config['eps'],
-                                                beta=self.config['beta'],
-                                                prediction_variance=self.config['prediction_variance'])
-
+                                                n_atoms=self.n_atoms,
+                                                n_edge_types=self.n_edge_types,
+                                                log_prior=self.log_prior,
+                                                add_const=self.add_const,
+                                                eps=self.eps,
+                                                beta=self.loss_beta,
+                                                prediction_variance=self.prediction_var)
 
                 total_loss += loss.item()
                 total_test_metrics += self._eval_metrics(output, ground_truth, nll=nll, kl=kl, log=False)
@@ -259,7 +288,6 @@ class Trainer:
 
         return log
 
-
     def _val_loss(self, epoch):
         """
         Calculate validation loss
@@ -275,39 +303,38 @@ class Trainer:
             for batch_id, (data) in enumerate(self.valid_loader):
                 data = data[0].to(self.device)
 
-                if data.size(2) > self.config['timesteps']:
+                if data.size(2) > self.timesteps:
                     # In case more timesteps are available, clip to avaid errors with dimensions
-                    data = data[:, :, :self.config['timesteps'], :]
+                    data = data[:, :, :self.timesteps, :]
 
                 logits = self.encoder(data, self.rel_rec, self.rel_send)
-                edges = F.gumbel_softmax(logits, tau=self.config['temp'], hard=True)
+                edges = F.gumbel_softmax(logits, tau=self.temp, hard=True)
                 prob = my_softmax(logits, -1)
 
                 if isinstance(self.decoder, RNNDecoder):
                     output = self.decoder(data, edges,
-                                          pred_steps=1, # Their validation loss uses teacher forcing
-                                          burn_in=self.config['burn_in'],
-                                          burn_in_steps=self.config['timesteps'] - self.config['prediction_steps'])
+                                          pred_steps=1,  # Their validation loss uses teacher forcing
+                                          burn_in=self.burn_in,
+                                          burn_in_steps=self.timesteps - self.prediction_steps)
                 else:
                     output = self.decoder(data,
                                           rel_type=edges,
                                           rel_rec=self.rel_rec,
                                           rel_send=self.rel_send,
-                                          pred_steps=self.config['prediction_steps'])
+                                          pred_steps=self.prediction_steps)
 
                 ground_truth = data[:, :, 1:, :]
 
                 loss, nll, kl = losses.vae_loss(predictions=output,
-                                       targets=ground_truth,
-                                       edge_probs=prob,
-                                       n_atoms=self.config['n_atoms'],
-                                       n_edge_types=self.config['n_edge_types'],
-                                       log_prior=self.config['prior'],
-                                       device=self.device,
-                                       add_const=self.config['add_const'],
-                                       eps=self.config['eps'],
-                                       beta=self.config['beta'],
-                                       prediction_variance=self.config['prediction_variance'])
+                                                targets=ground_truth,
+                                                edge_probs=prob,
+                                                n_atoms=self.n_atoms,
+                                                n_edge_types=self.n_edge_types,
+                                                log_prior=self.log_prior,
+                                                add_const=self.add_const,
+                                                eps=self.eps,
+                                                beta=self.loss_beta,
+                                                prediction_variance=self.prediction_var)
 
                 # Tensorboard
                 self.writer.set_step((epoch - 1) * len(self.valid_loader) + batch_id, 'val')
@@ -331,7 +358,7 @@ class Trainer:
 
         logs = []
 
-        for epoch in range(0, self.config['epochs']):
+        for epoch in range(0, self.epochs):
             result = self._train_epoch(epoch)
 
             # save logged informations into log dict
@@ -352,23 +379,23 @@ class Trainer:
 
             # evaluate model performance according to configured metric, save best checkpoint as model_best
             best = False
-            if self.config['use_early_stopping']:
+            if self.use_early_stopping:
                 try:
                     # check whether model performance improved or not, according to specified metric(mnt_metric)
-                    improved = (self.config['early_stopping_mode'] == 'min' and log[
-                        self.config['early_stopping_metric']] <= self.mnt_best) or \
-                               (self.config['early_stopping_mode'] == 'max' and log[
-                                   self.config['early_stopping_metric']] >= self.mnt_best)
+                    improved = (self.early_stopping_mode == 'min' and log[
+                        self.early_stopping_metric] <= self.mnt_best) or \
+                               (self.early_stopping_mode == 'max' and log[
+                                   self.early_stopping_metric] >= self.mnt_best)
                 except KeyError:
                     self.logger.warning("Warning: Metric '{}' is not found. "
                                         "Model performance monitoring is disabled.".format(
-                        self.config['early_stopping_metric']))
-                    self.config['use_early_stopping'] = False
+                        self.early_stopping_metric))
+                    self.use_early_stopping = False
                     improved = False
                     not_improved_count = 0
 
                 if improved:
-                    self.mnt_best = log[self.config['early_stopping_metric']]
+                    self.mnt_best = log[self.early_stopping_metric]
                     not_improved_count = 0
                     best = True
                     if self.do_save_models:
@@ -376,47 +403,47 @@ class Trainer:
                 else:
                     not_improved_count += 1
 
-                if not_improved_count > self.config['early_stopping_patience']:
+                if not_improved_count > self.early_stopping_patience:
                     self.logger.info("Validation performance didn\'t improve for {} epochs. "
                                      "Training stops.".format(not_improved_count))
                     break
         return logs
 
-"""
-    def _extract_latent_graphs(self):
-        self.encoder.eval()
-
-        all_edges = []
-        n_atoms = self.config['n_atoms']
-        edge_types = self.config['edge_types']
-        sum_edges = Variable(torch.zeros(n_atoms, n_atoms, edge_types))
-
-        with torch.no_grad():
-            for batch_id, (data) in enumerate(self.data_loader):
-                data = data[0].to(self.device)
-
-                self.rel_rec, self.rel_send = gen_fully_connected(data.size(1))
-
-                logits = self.encoder(data, self.rel_rec, self.rel_send)
-                edges = F.gumbel_softmax(logits, tau=self.config['temp'], hard=True)
-
-                # Convert from n x (n-1) matrix to n x n matrix
-                full_graph = torch.zeros(len(data), n_atoms, n_atoms, edge_types)
-                edges = edges.view(-1, n_atoms, n_atoms - 1, edge_types)
-                for i in range(n_atoms):
-                    for j in range(n_atoms):
-                        if i == j:
-                            continue
-                        elif i > j:
-                            full_graph[:, i, j, :] = edges[:, i, j, :]
-                        else:
-                            full_graph[:, i, j, :] = edges[:, i, j - 1, :]
-
-
-                for i, e in enumerate(edges):
-                    all_edges.append(e.numpy())
-                    sum_edges += full_graph[i]
-
-        return all_edges, (sum_edges / len(self.data_loader)).numpy()
-
-"""
+    """
+        def _extract_latent_graphs(self):
+            self.encoder.eval()
+    
+            all_edges = []
+            n_atoms = self.n_atoms
+            edge_types = self.config['edge_types']
+            sum_edges = Variable(torch.zeros(n_atoms, n_atoms, edge_types))
+    
+            with torch.no_grad():
+                for batch_id, (data) in enumerate(self.data_loader):
+                    data = data[0].to(self.device)
+    
+                    self.rel_rec, self.rel_send = gen_fully_connected(data.size(1))
+    
+                    logits = self.encoder(data, self.rel_rec, self.rel_send)
+                    edges = F.gumbel_softmax(logits, tau=self.temp, hard=True)
+    
+                    # Convert from n x (n-1) matrix to n x n matrix
+                    full_graph = torch.zeros(len(data), n_atoms, n_atoms, edge_types)
+                    edges = edges.view(-1, n_atoms, n_atoms - 1, edge_types)
+                    for i in range(n_atoms):
+                        for j in range(n_atoms):
+                            if i == j:
+                                continue
+                            elif i > j:
+                                full_graph[:, i, j, :] = edges[:, i, j, :]
+                            else:
+                                full_graph[:, i, j, :] = edges[:, i, j - 1, :]
+    
+    
+                    for i, e in enumerate(edges):
+                        all_edges.append(e.numpy())
+                        sum_edges += full_graph[i]
+    
+            return all_edges, (sum_edges / len(self.data_loader)).numpy()
+    
+    """
