@@ -30,9 +30,11 @@ _default_config = dict(
 
     data=dict(
         timesteps=49,
-        type='springs',
+        name='springs',
+        path='data',
         springs=dict(
             suffix='_springs5',
+            n_atoms=5,
             dims=4
         )
     ),
