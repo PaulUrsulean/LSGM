@@ -2,7 +2,7 @@
 
 
 ### Installation
-If you have not yet installed conda, just run `make`. The script will first try to sinstall anaconda for your platform 
+If you have not yet installed conda, just run `make`, make sure *.sh are executable (i.e. chmod +x ...). The script will first try to sinstall anaconda for your platform 
 (only MacOS and Linux supported at the moment) and then creates the conda environment and installs necessary dependencies.  
 If you already have anaconda installed, just run `make environment`.
 Please note that it will try to detect if you have cuda installed and downloads the cpu-only version if not.
