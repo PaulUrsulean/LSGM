@@ -10,15 +10,15 @@ def load_spring_data(batch_size=128, suffix='', path="data/"):
     # Taken from https://github.com/ethanfetaya/NRI/blob/master/utils.py and modified
 
     path = Path()
-    loc_train = np.load(os.path.join(path, 'loc_train', suffix + '.npy'))
-    vel_train = np.load(os.path.join(path, 'vel_train', suffix + '.npy'))
-    edges_train = np.load(os.path.join(path, 'edges_train', suffix + '.npy'))
-    loc_valid = np.load(os.path.join(path, 'loc_valid', suffix + '.npy'))
-    vel_valid = np.load(os.path.join(path, 'vel_valid', suffix + '.npy'))
-    edges_valid = np.load(os.path.join(path, 'edges_valid', suffix + '.npy'))
-    loc_test = np.load(os.path.join(path, 'loc_test', suffix + '.npy'))
-    vel_test = np.load(os.path.join(path, 'vel_test', suffix + '.npy'))
-    edges_test = np.load(os.path.join(path, 'edges_test', suffix + '.npy'))
+    loc_train = np.load(os.path.join(path, 'loc_train' + suffix + '.npy'))
+    vel_train = np.load(os.path.join(path, 'vel_train' + suffix + '.npy'))
+    edges_train = np.load(os.path.join(path, 'edges_train' + suffix + '.npy'))
+    loc_valid = np.load(os.path.join(path, 'loc_valid' + suffix + '.npy'))
+    vel_valid = np.load(os.path.join(path, 'vel_valid' + suffix + '.npy'))
+    edges_valid = np.load(os.path.join(path, 'edges_valid' + suffix + '.npy'))
+    loc_test = np.load(os.path.join(path, 'loc_test' + suffix + '.npy'))
+    vel_test = np.load(os.path.join(path, 'vel_test' + suffix + '.npy'))
+    edges_test = np.load(os.path.join(path, 'edges_test' + suffix + '.npy'))
 
     # [num_samples, num_timesteps, num_dims, num_atoms]
     num_atoms = loc_train.shape[3]
