@@ -3,6 +3,7 @@ from pathlib import Path
 
 import torch
 import numpy as np
+from torch.utils import data
 from torch.utils.data import TensorDataset, DataLoader
 
 
@@ -79,11 +80,20 @@ def load_spring_data(batch_size=128, suffix='', path="data/"):
     valid_data_loader = DataLoader(valid_data, batch_size=batch_size)
     test_data_loader = DataLoader(test_data, batch_size=batch_size)
 
-
-
-
     return dict(
         train_loader=train_data_loader,
         valid_loader=valid_data_loader,
         test_loader=test_data_loader
     )
+
+
+def load_random_data(batch_size, n_atoms, n_examples, n_dims, n_timesteps):
+    data_loaders = dict(
+        train_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_timesteps, n_dims)),
+                                     batch_size=batch_size),
+        valid_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_timesteps, n_dims)),
+                                     batch_size=batch_size),
+        test_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_timesteps, n_dims)),
+                                    batch_size=batch_size)
+    )
+    return data_loaders

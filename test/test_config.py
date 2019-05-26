@@ -48,11 +48,10 @@ class TestConfigParser(unittest.TestCase):
         self.assertEqual(config['logging']['store_models'], False)
 
     def test_generate_config(self):
-        config = generate_config(n_atoms=5, encoder_hidden=-234)
+        config = generate_config(encoder_hidden=-234)
 
         self.assertEqual(config['model']['encoder']['hidden_dim'], -234)
         self.assertNotEqual(config['model']['decoder']['hidden_dim'], -234)
-        self.assertEqual(config['data']['n_atoms'], 5)
 
     def test_default_configs_same(self):
         # Test if default values in code and file are the same

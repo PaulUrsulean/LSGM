@@ -96,35 +96,68 @@ def _get_by_path(tree, keys):
 
 CustomArgs = collections.namedtuple('CustomArgs', 'flag type target')
 options = [
-    CustomArgs('--n-atoms', type=int, target=('data', 'n_atoms')),
-    CustomArgs('--n-edges', type=int, target=('model', 'n_edge_types')),
-    CustomArgs('--n-timesteps', type=int, target=('data', 'timesteps')),
-    CustomArgs('--prediction-steps', type=int, target=('model', 'prediction_steps')),
-    CustomArgs('--batch-size', type=int, target=('training', 'batch_size')),
-    CustomArgs('--epochs', type=int, target=('training', 'epochs')),
+    # Globals
+    CustomArgs('--seed', type=int, target=('globals', 'seed')),
+    CustomArgs('--prior', type=bool, target=('globals', 'prior')),
+    CustomArgs('--add-const', type=bool, target=('globals', 'add_const')),
+    CustomArgs('--eps', type=float, target=('globals', 'eps')),
+
+    # Training
+    CustomArgs('--gpu-id', type=int, target=('training', 'gpu_id')),
     CustomArgs('--use-early-stopping', type=bool, target=('training', 'use_early_stopping')),
-    CustomArgs('--patience', type=int, target=('training', 'early_stopping_patience')),
-    CustomArgs('--lr', type=float, target=('training', 'optimizer', 'learning_rate')),
-    CustomArgs('--lr-decay-freq', type=int, target=('training', 'scheduler', 'stepsize')),
-    CustomArgs('--gamma', type=float, target=('training', 'scheduler', 'gamma')),
-    CustomArgs('--temp', type=float, target=('model', 'temp')),
-    CustomArgs('--var', type=float, target=('model', 'decoder', 'prediction_variance')),
+    CustomArgs('--early-stopping-metric', type=str, target=('training', 'early_stopping_metric')),
+    CustomArgs('--early-stopping-patience', type=int, target=('training', 'early_stopping_patience')),
+    CustomArgs('--epochs', type=int, target=('training', 'epochs')),
+    CustomArgs('--batch-size', type=int, target=('training', 'batch_size')),
+    CustomArgs('--lr', type=float, target=('training', 'optimizer', 'learning_rate')),  # TODO betas?
+    CustomArgs('--scheduler-stepsize', type=int, target=('training', 'scheduler', 'stepsize')),
+    CustomArgs('--scheduler-gamma', type=float, target=('training', 'scheduler', 'gamma')),
+
+    # Data
+    CustomArgs('--n-timesteps', type=int, target=('data', 'timesteps')),
+    CustomArgs('--dataset-name', type=str, target=('data', 'name')),
+    CustomArgs('--dataset-path', type=str, target=('data', 'path')),
+    # Random Data
+    CustomArgs('--random-data-atoms', type=int, target=('data', 'random', 'atoms')),
+    CustomArgs('--random-data-features', type=int, target=('data', 'random', 'dims')),
+    CustomArgs('--random-data-timesteps', type=int, target=('data', 'random', 'timesteps')),
+    CustomArgs('--random-data-examples', type=int, target=('data', 'random', 'examples')),
+
+    # CustomArgs('--n-atoms', type=int, target=('data', 'n_atoms')),
+
+    # TODO Add specifics for dataset?
+
+    # Loss
+    CustomArgs('--loss-beta', type=float, target=('loss', 'beta')),
+
+    # Model
+    CustomArgs('--prediction-steps', type=int, target=('model', 'prediction_steps')),
+    CustomArgs('--factor-graph', type=bool, target=('model', 'factor_graph')),
+    CustomArgs('--skip-first', type=bool, target=('model', 'skip_first')),
     CustomArgs('--hard', type=bool, target=('model', 'hard')),
+    CustomArgs('--dynamic-graph', type=bool, target=('model', 'dynamic_graph')),
+    CustomArgs('--temp', type=float, target=('model', 'temp')),
     CustomArgs('--burn-in', type=bool, target=('model', 'burn_in')),
+    CustomArgs('--n-edges', type=int, target=('model', 'n_edge_types')),
+
+    # Encoder
     CustomArgs('--encoder', type=str, target=('model', 'encoder', 'model')),
-    CustomArgs('--decoder', type=str, target=('model', 'decoder', 'model')),
     CustomArgs('--encoder-hidden', type=int, target=('model', 'encoder', 'hidden_dim')),
-    CustomArgs('--decoder-hidden', type=int, target=('model', 'decoder', 'hidden_dim')),
     CustomArgs('--encoder-dropout', type=float, target=('model', 'encoder', 'dropout')),
+
+    # Decoder
+    CustomArgs('--decoder', type=str, target=('model', 'decoder', 'model')),
+    CustomArgs('--decoder-hidden', type=int, target=('model', 'decoder', 'hidden_dim')),
     CustomArgs('--decoder-dropout', type=float, target=('model', 'decoder', 'dropout')),
-    CustomArgs('--save-folder', type=str, target=('logging', 'log_dir')),
-    # CustomArgs('--load-folder', type=str, default='', TODO,
+    CustomArgs('--prediction-var', type=float, target=('model', 'decoder', 'prediction_variance')),
+
+    # Logging
     CustomArgs('--log-freq', type=int, target=('logging', 'log_step')),
     CustomArgs('--store-models', type=bool, target=('logging', 'store_models')),
-    CustomArgs('--gpu-id', type=int, target=('training', 'gpu_id')),
-    CustomArgs('--skip-first', type=bool, target=('model', 'skip_first')),
-    # CustomArgs('--prior', type= TODO,
-    CustomArgs('--dynamic-graph', type=bool, target=('model', 'dynamic_graph'))
+    CustomArgs('--save-folder', type=str, target=('logging', 'log_dir')),
+    # Logger config ignored
+    # CustomArgs('--load-folder', type=str, default='', TODO
+
 ]
 
 

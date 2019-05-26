@@ -2,13 +2,13 @@ import argparse
 import logging
 
 from src.config_parser import ConfigParser, options
-from src.data.loaders import load_spring_data
+from src.data_loaders.loaders import load_spring_data, load_random_data
 from src.model import Model
 from src.model.modules import MLPEncoder, RNNDecoder, CNNEncoder, MLPDecoder
 
 
-def main(config):
-    logger = logging.getLogger("main")
+def run_experiment(config):
+    logger = logging.getLogger("experiment")
 
     logger.debug("Creating encoder and decoder")
     encoder = create_encoder(config)
@@ -22,6 +22,14 @@ def main(config):
         data_loaders = load_spring_data(batch_size=config['training']['batch_size'],
                                         suffix=config['data']['springs']['suffix'],
                                         path=config['data']['path'])
+    elif config['data']['name'] == 'random':
+        data_loaders = load_random_data(batch_size=config['training']['batch_size'],
+                                        n_atoms=config['data']['random']['atoms'],
+                                        n_examples=config['data']['random']['examples'],
+                                        n_dims=config['data']['random']['dims'],
+                                        n_timesteps=config['data']['random']['timesteps'])
+    else:
+        raise NotImplementedError(config['data']['name'])
 
     logger.debug("Creating model...")
     model = Model(encoder=encoder,
@@ -84,4 +92,4 @@ if __name__ == '__main__':
     #                  #help='path to latest checkpoint (default: None)') # TODO: Add support
 
     config = ConfigParser(args, options).config
-    main(config)
+    run_experiment(config)
