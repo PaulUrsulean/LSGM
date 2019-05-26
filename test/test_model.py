@@ -1,10 +1,7 @@
 import unittest
 
-import torch
-import torch.utils.data as data
-from torch.utils.data import TensorDataset
-
-from src.config import generate_config
+from src.config_parser import generate_config
+from src.data_loaders.loaders import load_random_data
 from src.model import Model
 from src.model.modules import MLPEncoder, RNNDecoder
 
@@ -12,29 +9,31 @@ from src.model.modules import MLPEncoder, RNNDecoder
 class MyTestCase(unittest.TestCase):
 
     def test_run_epoch(self):
-        n_examples = 1
-        n_atoms = 5
-        n_steps = 100
-        n_feat = 7
-        n_hid = 60
-        n_edges = 3
-        n_timesteps = 10
+        n_feat = 1
+        n_edges = 1
+        n_epochs = 2
+        n_timesteps = 2
+        n_hid = 1
 
-        data_loaders = dict(
-            train_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat))),
-            valid_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat))),
-            test_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat)))
-        )
-
-        config = generate_config(n_atoms=n_atoms,
-                                 n_edges=n_edges
+        config = generate_config(n_timesteps=n_timesteps,
+                                 n_edges=n_edges,
+                                 prediction_steps=1,
+                                 epochs=n_epochs,
+                                 use_early_stopping=False,
+                                 gpu_id=None,
+                                 log_dir="/tmp/1",
+                                 dataset_name='random',
+                                 random_data_atoms=2,
+                                 random_data_features=n_feat,
+                                 random_data_timesteps=n_timesteps * 2,
+                                 random_data_examples=1
                                  )
-        config['data']['timesteps'] = n_timesteps
-        config['training']['epochs'] = 2
-        config['training']['use_early_stopping'] = True
-        config['training']['early_stopping_patience'] = 1
-        config['training']['gpu_id'] = None
-        config['logging']['log_dir'] = '/tmp'
+
+        data_loaders = load_random_data(batch_size=1,
+                                        n_atoms=config['data']['random']['atoms'],
+                                        n_examples=config['data']['random']['examples'],
+                                        n_dims=config['data']['random']['dims'],
+                                        n_timesteps=config['data']['random']['timesteps'])
 
         encoder = MLPEncoder(n_timesteps * n_feat, n_hid, n_edges)
         decoder = RNNDecoder(n_in_node=n_feat, edge_types=n_edges, n_hid=n_hid)
@@ -43,36 +42,37 @@ class MyTestCase(unittest.TestCase):
                         decoder=decoder,
                         data_loaders=data_loaders,
                         config=config)
-        trainer.train()
+
+        trainer.test()
         trainer.test()
         # No errors thrown
 
     def test_overfit_epoch(self):
-        n_examples = 1
-        n_atoms = 2
-        n_steps = 20
         n_feat = 1
-        n_hid = 20
         n_edges = 1
         n_epochs = 300
         n_timesteps = 10
+        n_hid = 20
 
-        data_loaders = dict(
-            train_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_timesteps, n_feat))),
-            valid_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_timesteps, n_feat))),
-            test_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_steps, n_feat)))
-        )
-
-        config = generate_config(n_atoms=n_atoms,
-                                 n_edges=n_edges
+        config = generate_config(n_timesteps=n_timesteps,
+                                 n_edges=n_edges,
+                                 prediction_steps=1,
+                                 epochs=n_epochs,
+                                 use_early_stopping=False,
+                                 gpu_id=None,
+                                 log_dir="/tmp/1",
+                                 dataset_name='random',
+                                 random_data_atoms=2,
+                                 random_data_features=n_feat,
+                                 random_data_timesteps=n_timesteps,
+                                 random_data_examples=1
                                  )
 
-        config['data']['timesteps'] = n_timesteps
-        config['model']['prediction_steps'] = 1
-        config['training']['epochs'] = n_epochs
-        config['training']['use_early_stopping'] = False
-        config['training']['gpu_id'] = None
-        config['logging']['log_dir'] = '/tmp'
+        data_loaders = load_random_data(batch_size=1,
+                                        n_atoms=config['data']['random']['atoms'],
+                                        n_examples=config['data']['random']['examples'],
+                                        n_dims=config['data']['random']['dims'],
+                                        n_timesteps=config['data']['random']['timesteps'])
 
         encoder = MLPEncoder(n_timesteps * n_feat, n_hid, n_edges)
         decoder = RNNDecoder(n_in_node=n_feat, edge_types=n_edges, n_hid=n_hid)

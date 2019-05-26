@@ -78,6 +78,10 @@ class Model:
             os.makedirs(self.models_log_path)
 
     def parse_config(self, config):
+        dataset = config['data']['name']
+        n_features = config['data'][dataset]['dims']
+        self.n_atoms = config['data'][dataset]['atoms']
+
         self.random_seed = config['globals']['seed']
         self.logger_config_path = config['logging']['logger_config']
         self.early_stopping_mode = config['training']['early_stopping_mode']
@@ -97,7 +101,7 @@ class Model:
         self.sample_hard = config['model']['hard']
 
         self.n_edge_types = config['model']['n_edge_types']
-        self.n_atoms = config['data']['n_atoms']
+
         self.log_prior = config['globals']['prior']  # TODO
         self.add_const = config['globals']['add_const']
         self.eps = config['globals']['eps']
@@ -407,6 +411,9 @@ class Model:
                     self.logger.info("Validation performance didn\'t improve for {} epochs. "
                                      "Training stops.".format(not_improved_count))
                     break
+            else:
+                if self.do_save_models and epoch % self.log_step == 0:
+                    self.save_models(epoch)
         return logs
 
     """

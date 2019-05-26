@@ -9,17 +9,17 @@ _default_config = dict(
 
     training=dict(
         gpu_id=None,
-        use_early_stopping=False,
+        use_early_stopping=True,
         early_stopping_mode='min',  # in ["min", "max"]
         early_stopping_metric='val_mse_loss',
-        early_stopping_patience=20,
+        early_stopping_patience=50,
         epochs=500,
         batch_size=128,
 
         optimizer=dict(
             type='adam',
             learning_rate=0.0005,
-            betas=(0.9, 0.999)
+            betas=[0.9, 0.999]
         ),
 
         scheduler=dict(
@@ -32,9 +32,15 @@ _default_config = dict(
         timesteps=49,
         name='springs',
         path='data',
+        random=dict(
+            atoms=4,
+            dims=100,
+            examples=100,
+            timesteps=200
+        ),
         springs=dict(
             suffix='_springs5',
-            n_atoms=5,
+            atoms=5,
             dims=4
         )
     ),
@@ -44,8 +50,6 @@ _default_config = dict(
     ),
 
     model=dict(
-        save=True,
-        # In ground truth
         prediction_steps=10,
         factor_graph=True,
         skip_first=False,
@@ -73,16 +77,3 @@ _default_config = dict(
         store_models=True
     )
 )
-
-
-def generate_config(n_atoms, n_edges=2, *args, **kwargs):
-    config = _default_config.copy()
-
-    config['model']['n_edge_types'] = n_edges
-    config['data']['n_atoms'] = n_atoms
-
-    # Override other parameterswith manually set values
-    for key, value in kwargs.items():
-        # assert (key in config)
-        config[key] = value
-    return config
