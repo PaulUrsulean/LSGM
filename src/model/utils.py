@@ -1,3 +1,5 @@
+from pathlib import Path
+import os
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -72,6 +74,29 @@ def edge2node(m, adj_rec, adj_send):
 
 def sample_gumbel(shape):
     gumbel.sample(shape)
+
+
+def load_models(enc: torch.nn.Module, dec: torch.nn.Module, config: dict):
+    models_path = config['training']['load_path']
+    path = Path(models_path).parent / "models"
+
+    # Find different models for each epoch
+    max_epoch = -1
+    for f in os.listdir(path):
+        epoch = int(f.split("_epoch")[-1].split(".pt")[0])
+        max_epoch = max(epoch, max_epoch)
+
+    if max_epoch == -1:
+        raise Exception(f"No models found under {models_path}")
+
+    encoder_file = path / f"encoder_epoch{max_epoch}.pt"
+    decoder_file = path / f"decoder_epoch{max_epoch}.pt"
+    enc.load_state_dict(torch.load(encoder_file))
+    dec.load_state_dict(torch.load(decoder_file))
+
+    print(f"Loaded encoder {encoder_file} and decoder {decoder_file}")
+    config['training']['load_path'] = None
+    return enc, dec
 
 
 def nll():

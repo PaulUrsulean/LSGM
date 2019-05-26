@@ -13,6 +13,7 @@
         "early_stopping_patience": 50,
         "epochs": 500,
         "batch_size": 128,
+        "load_path": null,
         "optimizer": {
             "type": "adam",
             "learning_rate": 0.0005,

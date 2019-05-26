@@ -38,19 +38,22 @@ class ConfigParser:
         args = args.parse_args(args_list)
 
         # TODO Support resume
-        # if args.resume:
-        #    self.resume = Path(args.resume)
-        #    self.cfg_fname = self.resume.parent / 'config.json'
-        # else:
-        #    msg_no_cfg = "Configuration file need to be specified. Add '-c config.json', for example."
-        #    assert args.config is not None, msg_no_cfg
-        #    self.resume = None
-        #    self.cfg_fname = Path(args.config)
-        self.cfg_fname = Path(args.config)
+        if args.load_path:
+            self.resume = Path(args.load_path)
+            self.cfg_fname = self.resume.parent / 'config.json'
+        else:
+            msg_no_cfg = "Configuration file need to be specified. Add '-c config.json', for example."
+            assert args.config is not None, msg_no_cfg
+            self.resume = None
+            self.cfg_fname = Path(args.config)
 
         # load config file and apply custom cli options
         config = read_json(self.cfg_fname)
-        self._config = _update_config(config, options, args)
+        if args.load_path:
+            self._config = config
+            self._config['training']['load_path'] = args.load_path
+        else:
+            self._config = _update_config(config, options, args)
 
     def __getitem__(self, name):
         return self.config[name]
@@ -117,6 +120,7 @@ options = [
     CustomArgs('--n-timesteps', type=int, target=('data', 'timesteps')),
     CustomArgs('--dataset-name', type=str, target=('data', 'name')),
     CustomArgs('--dataset-path', type=str, target=('data', 'path')),
+
     # Random Data
     CustomArgs('--random-data-atoms', type=int, target=('data', 'random', 'atoms')),
     CustomArgs('--random-data-features', type=int, target=('data', 'random', 'dims')),

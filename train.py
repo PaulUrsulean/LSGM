@@ -5,6 +5,7 @@ from src.config_parser import ConfigParser, options
 from src.data_loaders.loaders import load_spring_data, load_random_data
 from src.model import Model
 from src.model.modules import MLPEncoder, RNNDecoder, CNNEncoder, MLPDecoder
+from src.model.utils import load_models
 
 
 def run_experiment(config):
@@ -14,7 +15,8 @@ def run_experiment(config):
     encoder = create_encoder(config)
     decoder = create_decoder(config)
 
-    # TODO Load model if configured
+    if config['training']['load_path']:
+        encoder, decoder = load_models(encoder, decoder, config)
 
     # TODO Add other data loaders
     logger.debug("Loading data...")
@@ -86,10 +88,10 @@ def create_encoder(config):
 
 if __name__ == '__main__':
     args = argparse.ArgumentParser(description='TODO')  # TODO Name
-    args.add_argument('-c', '--config', default=None, type=str)
-    # help='config file path (default: None)')
-    # args.add_argument('-r', '--resume', default=None, type=str,
-    #                  #help='path to latest checkpoint (default: None)') # TODO: Add support
+    args.add_argument('-c', '--config', default="config.json", type=str,
+                      help='config file path (default: None)')
+    args.add_argument('-l', '--load-path', default=None, type=str,
+                      help='path to latest checkpoint (default: None)')
 
     config = ConfigParser(args, options=options).config
     run_experiment(config)
