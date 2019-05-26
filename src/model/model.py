@@ -205,6 +205,19 @@ class Model:
             self.writer.set_step((epoch - 1) * len(self.train_loader) + batch_id)
             self.writer.add_scalar('loss', loss.item())
 
+            gradients_encoder = torch.Tensor([p.grad.mean() for p in self.encoder.parameters()])
+            gradients_decoder = torch.Tensor([p.grad.mean() for p in self.decoder.parameters()])
+
+            weights_encoder = torch.Tensor([p.data.mean() for p in self.encoder.parameters()])
+            weights_decoder = torch.Tensor([p.data.mean() for p in self.decoder.parameters()])
+
+            self.writer.add_scalar('avg_weight_encoder', weights_encoder.mean())
+            self.writer.add_scalar('avg_weight_decoder', weights_decoder.mean())
+            self.writer.add_scalar('avg_gradient_encoder', gradients_encoder.mean().cpu())
+            self.writer.add_scalar('avg_gradient_decoder', gradients_decoder.mean().cpu())
+
+            self.writer.add_scalar('learning_rate', self.lr_scheduler.get_lr()[-1])
+
             total_loss += loss.item()
             total_metrics += self._eval_metrics(output, ground_truth, nll=nll, kl=kl)
 
