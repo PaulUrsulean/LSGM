@@ -34,8 +34,7 @@
       "suffix": "_springs5",
       "n_atoms": 5,
       "dims": 4
-    },
-    "n_atoms": 2
+    }
   },
   "loss": {
     "beta": 1.0

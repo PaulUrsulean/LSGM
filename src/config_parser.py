@@ -6,10 +6,12 @@ from pathlib import Path
 from functools import reduce
 from operator import getitem
 
+from src.config import _default_config
 
-def read_json(fname):
+
+def read_json(fname, object_hook=OrderedDict):
     with fname.open('rt') as handle:
-        return json.load(handle, object_hook=OrderedDict)
+        return json.load(handle, object_hook=object_hook)
 
 
 def write_json(content, fname):
@@ -31,11 +33,7 @@ class ConfigParser:
     # Taken from https://github.com/victoresque/pytorch-template/blob/master/parse_config.py and modified
     def __init__(self, args, args_list=None, options=''):
         # parse default and custom cli options
-        for opt in options:
-            if opt.type == bool:
-                args.add_argument(opt.flag, default=None, type=str2bool)
-            else:
-                args.add_argument(opt.flag, default=None, type=opt.type)
+        options_to_args(args, options)
 
         args = args.parse_args(args_list)
 
@@ -63,10 +61,20 @@ class ConfigParser:
         return self._config
 
 
-# helper functions used to update config dict with custom cli options
+def options_to_args(args, options):
+    for opt in options:
+        if opt.type == bool:
+            args.add_argument(opt.flag, default=None, type=str2bool)
+        else:
+            args.add_argument(opt.flag, default=None, type=opt.type)
+
+
 def _update_config(config, options, args):
     for opt in options:
-        value = getattr(args, _get_opt_name(opt.flag))
+        if type(args) is dict:
+            value = dict.get(args, _get_opt_name(opt.flag))
+        else:
+            value = getattr(args, _get_opt_name(opt.flag))
         if value is not None:
             _set_by_path(config, opt.target, value)
     return config
@@ -118,3 +126,14 @@ options = [
     # CustomArgs('--prior', type= TODO,
     CustomArgs('--dynamic-graph', type=bool, target=('model', 'dynamic_graph'))
 ]
+
+
+def generate_config(**kwargs):
+    args = argparse.ArgumentParser()
+    options_to_args(args, options)
+
+    config = _update_config(_default_config.copy(),
+                            options=options,
+                            args=kwargs)
+
+    return config

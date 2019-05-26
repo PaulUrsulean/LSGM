@@ -19,7 +19,7 @@ _default_config = dict(
         optimizer=dict(
             type='adam',
             learning_rate=0.0005,
-            betas=(0.9, 0.999)
+            betas=[0.9, 0.999]
         ),
 
         scheduler=dict(
@@ -75,14 +75,3 @@ _default_config = dict(
 )
 
 
-def generate_config(n_atoms, n_edges=2, *args, **kwargs):
-    config = _default_config.copy()
-
-    config['model']['n_edge_types'] = n_edges
-    config['data']['n_atoms'] = n_atoms
-
-    # Override other parameterswith manually set values
-    for key, value in kwargs.items():
-        # assert (key in config)
-        config[key] = value
-    return config

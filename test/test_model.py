@@ -4,7 +4,7 @@ import torch
 import torch.utils.data as data
 from torch.utils.data import TensorDataset
 
-from src.config import generate_config
+from src.config_parser import generate_config
 from src.model import Model
 from src.model.modules import MLPEncoder, RNNDecoder
 
