@@ -16,7 +16,7 @@ class MyTestCase(unittest.TestCase):
         n_atoms = 5
         n_steps = 100
         n_feat = 7
-        n_hid = 20
+        n_hid = 60
         n_edges = 3
         n_timesteps = 10
 

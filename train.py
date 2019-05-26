@@ -121,7 +121,7 @@ if __name__ == '__main__':
         CustomArgs('--dynamic-graph', type=bool, target=('model', 'dynamic_graph'))
     ]
 
-    config = ConfigParser(args, options)
+    config = ConfigParser(args, options).config
     main(config)
 
 
