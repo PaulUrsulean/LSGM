@@ -9,7 +9,6 @@ from torch.utils.data import TensorDataset, DataLoader
 def load_spring_data(batch_size=128, suffix='', path="data/"):
     # Taken from https://github.com/ethanfetaya/NRI/blob/master/utils.py and modified
 
-    path = Path()
     loc_train = np.load(os.path.join(path, 'loc_train' + suffix + '.npy'))
     vel_train = np.load(os.path.join(path, 'vel_train' + suffix + '.npy'))
     edges_train = np.load(os.path.join(path, 'edges_train' + suffix + '.npy'))
