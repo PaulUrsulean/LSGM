@@ -18,7 +18,6 @@ def run_experiment(config):
     if config['training']['load_path']:
         encoder, decoder = load_models(encoder, decoder, config)
 
-    # TODO Add other data loaders
     logger.debug("Loading data...")
     if config['data']['name'] == 'springs':
         data_loaders = load_spring_data(batch_size=config['training']['batch_size'],
@@ -87,7 +86,7 @@ def create_encoder(config):
 
 
 if __name__ == '__main__':
-    args = argparse.ArgumentParser(description='TODO')  # TODO Name
+    args = argparse.ArgumentParser(description='TODO')
     args.add_argument('-c', '--config', default="config.json", type=str,
                       help='config file path (default: None)')
     args.add_argument('-l', '--load-path', default=None, type=str,

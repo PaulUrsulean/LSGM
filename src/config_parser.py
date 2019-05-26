@@ -37,7 +37,6 @@ class ConfigParser:
 
         args = args.parse_args(args_list)
 
-        # TODO Support resume
         if args.load_path:
             self.resume = Path(args.load_path)
             self.cfg_fname = self.resume.parent / 'config.json'
@@ -160,7 +159,6 @@ options = [
     CustomArgs('--store-models', type=bool, target=('logging', 'store_models')),
     CustomArgs('--save-folder', type=str, target=('logging', 'log_dir')),
     # Logger config ignored
-    # CustomArgs('--load-folder', type=str, default='', TODO
 
 ]
 

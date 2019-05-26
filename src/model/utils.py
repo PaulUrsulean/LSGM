@@ -87,7 +87,7 @@ def load_models(enc: torch.nn.Module, dec: torch.nn.Module, config: dict):
         max_epoch = max(epoch, max_epoch)
 
     if max_epoch == -1:
-        raise Exception(f"No models found under {models_path}")
+        raise FileNotFoundError(f"No models found under {models_path}")
 
     encoder_file = path / f"encoder_epoch{max_epoch}.pt"
     decoder_file = path / f"decoder_epoch{max_epoch}.pt"
