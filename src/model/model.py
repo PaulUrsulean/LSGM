@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.autograd import Variable
 
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
@@ -22,7 +23,6 @@ class Model:
                  data_loaders,
                  config):
 
-        # Parse Config and set model attributes
         self.parse_config(config)
         self.config = config
 
@@ -65,6 +65,10 @@ class Model:
         # Early stopping behaviour
         assert (self.early_stopping_mode in ['min', 'max'])
         self.mnt_best = inf if self.early_stopping_mode == 'min' else -inf
+
+        # Parse Config and set model attributes
+        self.rel_rec, self.rel_send = gen_fully_connected(self.n_atoms
+                                                          , device=self.device)
 
     def setup_save_dir(self, config):
         save_dir = Path(config['logging']['log_dir'])
@@ -109,6 +113,7 @@ class Model:
         self.prediction_var = config['model']['decoder']['prediction_variance']
 
         self.epochs = config['training']['epochs']
+        self.dynamic_graph = config['model']['dynamic_graph']
 
         self.log_step = config['logging']['log_step']
 
@@ -152,11 +157,15 @@ class Model:
         :return:
         """
 
+        self.encoder.train()
+        self.decoder.train()
+
         total_loss = 0
         total_metrics = np.zeros(len(self.metrics))
 
         for batch_id, batch in enumerate(self.train_loader):
             batch = batch[0].to(self.device)
+            batch = Variable(batch)
 
             if batch.size(2) > self.timesteps:
                 # In case more timesteps are available, clip to avaid errors with dimensions
@@ -173,9 +182,8 @@ class Model:
 
             if isinstance(self.decoder, RNNDecoder):
                 output = self.decoder(batch, edges,
-                                      pred_steps=self.prediction_steps
-                                      ,
-                                      burn_in=self.burn_in,
+                                      pred_steps=self.prediction_steps,  # In implementation hard-coded 100
+                                      burn_in=True,
                                       burn_in_steps=self.timesteps - self.prediction_steps)
             else:
                 output = self.decoder(batch,
@@ -197,12 +205,14 @@ class Model:
                                             eps=self.eps,
                                             beta=self.loss_beta,
                                             prediction_variance=self.config['model']['decoder']['prediction_variance'])
-
+            if torch.isnan(loss).any().__bool__():
+                self.logger.warn("Loss NAN")
+                self.logger.warn(nll.item())
             loss.backward()
             self.optimizer.step()
 
             # Tensorboard writer
-            self.writer.set_step((epoch - 1) * len(self.train_loader) + batch_id)
+            self.writer.set_step(epoch * len(self.train_loader) + batch_id)
             self.writer.add_scalar('loss', loss.item())
 
             total_loss += loss.item()
@@ -245,14 +255,13 @@ class Model:
         self.encoder.eval()
         self.decoder.eval()
 
-        total_loss = 0
+        test_loss = 0.0
+        tot_mse = 0.0
         total_test_metrics = np.zeros(len(self.metrics))
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.test_loader):
                 data = data[0].to(self.device)
-
-                self.rel_rec, self.rel_send = gen_fully_connected(self.n_atoms
-                                                                  , device=self.device)
+                batch = Variable(data)
 
                 assert (data.size(2) - self.timesteps >= self.timesteps)
 
@@ -282,11 +291,39 @@ class Model:
                                                 beta=self.loss_beta,
                                                 prediction_variance=self.prediction_var)
 
-                total_loss += loss.item()
+                test_loss += loss.item()
                 total_test_metrics += self._eval_metrics(output, ground_truth, nll=nll, kl=kl, log=False)
 
+                # For plotting purposes
+                if isinstance(self.decoder, RNNDecoder):
+                    if self.dynamic_graph:
+                        # Only makes sense when time-series is long enough
+                        output = self.decoder(data, edges, self.rel_rec, self.rel_send, 100,
+                                              burn_in=True, burn_in_steps=self.timesteps,
+                                              dynamic_graph=True, encoder=self.encoder,
+                                              temp=self.temp)
+                    else:
+                        output = self.decoder(data, edges, self.rel_rec, self.rel_send, 100,
+                                              burn_in=True, burn_in_steps=self.timesteps)
+                    output = output[:, :, self.timesteps:self.timesteps + 21, :]
+                    target = data[:, :, self.timesteps:self.timesteps + 21, :]
+                    # TODO: In paper, why? Why second one negative
+                    # output = output[:, :, args.timesteps:, :]
+                    # target = data[:, :, -args.timesteps:, :]
+                    #
+                else:
+                    data_plot = data[:, :, self.timesteps:self.timesteps + 21,
+                                :].contiguous()
+                    output = self.decoder(data_plot, edges, self.rel_rec, self.rel_send,
+                                          20)  # 20 in paper imp
+                    target = data_plot[:, :, 1:, :]
+
+                mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
+                tot_mse += mse.data.cpu().numpy()
+
         res = {
-            'test_loss': total_loss / len(self.test_loader),
+            'test_loss': test_loss / len(self.test_loader),
+            'test_full_loss': list(float(f) for f in (tot_mse / len(self.test_loader))),
             'test_metrics': (total_test_metrics / len(self.test_loader)).tolist()
         }
 
@@ -298,6 +335,7 @@ class Model:
             else:
                 log[key] = value
 
+        self.logger.debug(res)
         self.save_dict(log, 'test.json', self.log_path)
 
         return log
@@ -316,6 +354,7 @@ class Model:
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.valid_loader):
                 data = data[0].to(self.device)
+                batch = Variable(data)
 
                 if data.size(2) > self.timesteps:
                     # In case more timesteps are available, clip to avaid errors with dimensions
@@ -325,17 +364,8 @@ class Model:
                 edges = F.gumbel_softmax(logits, tau=self.temp, hard=True)
                 prob = my_softmax(logits, -1)
 
-                if isinstance(self.decoder, RNNDecoder):
-                    output = self.decoder(data, edges,
-                                          pred_steps=1,  # Their validation loss uses teacher forcing
-                                          burn_in=self.burn_in,
-                                          burn_in_steps=self.timesteps - self.prediction_steps)
-                else:
-                    output = self.decoder(data,
-                                          rel_type=edges,
-                                          rel_rec=self.rel_rec,
-                                          rel_send=self.rel_send,
-                                          pred_steps=self.prediction_steps)
+                # validation output uses teacher forcing
+                output = self.decoder(data, edges, self.rel_rec, self.rel_send, 1)
 
                 ground_truth = data[:, :, 1:, :]
 
