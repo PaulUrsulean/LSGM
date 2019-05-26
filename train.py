@@ -91,5 +91,5 @@ if __name__ == '__main__':
     # args.add_argument('-r', '--resume', default=None, type=str,
     #                  #help='path to latest checkpoint (default: None)') # TODO: Add support
 
-    config = ConfigParser(args, options).config
+    config = ConfigParser(args, options=options).config
     run_experiment(config)
