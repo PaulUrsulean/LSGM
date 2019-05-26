@@ -72,3 +72,11 @@ def edge2node(m, adj_rec, adj_send):
 
 def sample_gumbel(shape):
     gumbel.sample(shape)
+
+
+def nll():
+    pass
+
+
+def kl():
+    pass
