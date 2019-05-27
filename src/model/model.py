@@ -9,7 +9,6 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.autograd import Variable
 
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
@@ -165,7 +164,6 @@ class Model:
 
         for batch_id, batch in enumerate(self.train_loader):
             batch = batch[0].to(self.device)
-            batch = Variable(batch)
 
             if batch.size(2) > self.timesteps:
                 # In case more timesteps are available, clip to avaid errors with dimensions
@@ -215,16 +213,26 @@ class Model:
             self.writer.set_step(epoch * len(self.train_loader) + batch_id)
             self.writer.add_scalar('loss', loss.item())
 
-            gradients_encoder = torch.Tensor([p.grad.mean() for p in self.encoder.parameters()])
-            gradients_decoder = torch.Tensor([p.grad.mean() for p in self.decoder.parameters()])
+            enc_weights = torch.cat([param.view(-1) for param in self.encoder.parameters()])
+            dec_weights = torch.cat([param.view(-1) for param in self.decoder.parameters()])
+            self.writer.add_histogram("encoder_weights", enc_weights.clone().cpu().data.numpy())
+            self.writer.add_histogram("decoder_weights", dec_weights.clone().cpu().data.numpy())
 
-            weights_encoder = torch.Tensor([p.data.mean() for p in self.encoder.parameters()])
-            weights_decoder = torch.Tensor([p.data.mean() for p in self.decoder.parameters()])
+            enc_grads = torch.cat([param.grad.view(-1) for param in self.encoder.parameters()])
+            dec_grads = torch.cat(
+                [param.grad.view(-1) for param in self.decoder.parameters() if param.grad is not None])
+            self.writer.add_histogram("encoder_grads", enc_grads.clone().cpu().data.numpy())
+            if dec_weights is not None:
+                self.writer.add_histogram("decoder_grads", dec_grads.clone().cpu().data.numpy())
 
-            self.writer.add_scalar('avg_weight_encoder', weights_encoder.mean())
-            self.writer.add_scalar('avg_weight_decoder', weights_decoder.mean())
-            self.writer.add_scalar('avg_gradient_encoder', gradients_encoder.mean().cpu())
-            self.writer.add_scalar('avg_gradient_decoder', gradients_decoder.mean().cpu())
+            for name, param in self.encoder.named_parameters():
+                self.writer.add_histogram(name, param.clone().cpu().data.numpy())
+                self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
+
+            for name, param in self.decoder.named_parameters():
+                self.writer.add_histogram(name, param.clone().cpu().data.numpy())
+                if param.grad is not None:
+                    self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
 
             self.writer.add_scalar('learning_rate', self.lr_scheduler.get_lr()[-1])
 
@@ -264,7 +272,6 @@ class Model:
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.test_loader):
                 data = data[0].to(self.device)
-                batch = Variable(data)
 
                 assert (data.size(2) - self.timesteps >= self.timesteps)
 
@@ -357,7 +364,6 @@ class Model:
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.valid_loader):
                 data = data[0].to(self.device)
-                batch = Variable(data)
 
                 if data.size(2) > self.timesteps:
                     # In case more timesteps are available, clip to avaid errors with dimensions
