@@ -15,7 +15,7 @@ _default_config = dict(
         early_stopping_patience=50,
         epochs=500,
         batch_size=128,
-
+        grad_clip_value=None,
         optimizer=dict(
             type='adam',
             learning_rate=0.0005,
