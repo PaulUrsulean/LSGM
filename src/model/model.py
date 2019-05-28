@@ -220,6 +220,7 @@ class Model:
             loss.backward()
 
             if self.clip_value is not None:
+                clip_grad_value_(self.encoder.parameters(), self.clip_value)
                 clip_grad_value_(self.decoder.parameters(), self.clip_value)
 
             self.optimizer.step()
@@ -228,26 +229,26 @@ class Model:
             self.writer.set_step(epoch * len(self.train_loader) + batch_id)
             self.writer.add_scalar('loss', loss.item())
 
-            enc_weights = torch.cat([param.view(-1) for param in self.encoder.parameters()])
-            dec_weights = torch.cat([param.view(-1) for param in self.decoder.parameters()])
-            self.writer.add_histogram("encoder_weights", enc_weights.clone().cpu().data.numpy())
-            self.writer.add_histogram("decoder_weights", dec_weights.clone().cpu().data.numpy())
-
-            enc_grads = torch.cat([param.grad.view(-1) for param in self.encoder.parameters()])
-            dec_grads = torch.cat(
-                [param.grad.view(-1) for param in self.decoder.parameters() if param.grad is not None])
-            self.writer.add_histogram("encoder_grads", enc_grads.clone().cpu().data.numpy())
-            if dec_weights is not None:
-                self.writer.add_histogram("decoder_grads", dec_grads.clone().cpu().data.numpy())
-
-            for name, param in self.encoder.named_parameters():
-                self.writer.add_histogram(name, param.clone().cpu().data.numpy())
-                self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
-
-            for name, param in self.decoder.named_parameters():
-                self.writer.add_histogram(name, param.clone().cpu().data.numpy())
-                if param.grad is not None:
-                    self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
+            # enc_weights = torch.cat([param.view(-1) for param in self.encoder.parameters()])
+            # dec_weights = torch.cat([param.view(-1) for param in self.decoder.parameters()])
+            # self.writer.add_histogram("encoder_weights", enc_weights.clone().cpu().data.numpy())
+            # self.writer.add_histogram("decoder_weights", dec_weights.clone().cpu().data.numpy())
+            #
+            # enc_grads = torch.cat([param.grad.view(-1) for param in self.encoder.parameters()])
+            # dec_grads = torch.cat(
+            #     [param.grad.view(-1) for param in self.decoder.parameters() if param.grad is not None])
+            # self.writer.add_histogram("encoder_grads", enc_grads.clone().cpu().data.numpy())
+            # if dec_weights is not None:
+            #     self.writer.add_histogram("decoder_grads", dec_grads.clone().cpu().data.numpy())
+            #
+            # for name, param in self.encoder.named_parameters():
+            #     self.writer.add_histogram(name, param.clone().cpu().data.numpy())
+            #     self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
+            #
+            # for name, param in self.decoder.named_parameters():
+            #     self.writer.add_histogram(name, param.clone().cpu().data.numpy())
+            #     if param.grad is not None:
+            #         self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
 
             self.writer.add_scalar('learning_rate', self.lr_scheduler.get_lr()[-1])
 
