@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.nn.utils import clip_grad_value_
 
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
@@ -87,6 +88,7 @@ class Model:
 
         self.random_seed = config['globals']['seed']
         self.logger_config_path = config['logging']['logger_config']
+        self.clip_value = config['training']['grad_clip_value']
         self.early_stopping_mode = config['training']['early_stopping_mode']
         self.use_early_stopping = config['training']['use_early_stopping']
         self.early_stopping_patience = config['training']['early_stopping_patience']
@@ -207,6 +209,10 @@ class Model:
                 self.logger.warn("Loss NAN")
                 self.logger.warn(nll.item())
             loss.backward()
+
+            if self.clip_value is not None:
+                clip_grad_value_(self.decoder.parameters(), self.clip_value)
+
             self.optimizer.step()
 
             # Tensorboard writer
