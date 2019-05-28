@@ -36,7 +36,7 @@ class TestConfigParser(unittest.TestCase):
         config = ConfigParser(args,
                               args_list=['--encoder-hidden', "-234",
                                          '--batch-size', "5550123",
-                                         "--store-models", "False"],  # TODO
+                                         "--store-models", "False"],
                               options=options).config
 
         # Load file directly

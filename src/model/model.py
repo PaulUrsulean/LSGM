@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
 from src.model.modules import RNNDecoder
-from src.model.utils import gen_fully_connected, my_softmax, nll, kl
+from src.model.utils import gen_fully_connected, my_softmax, nll, kl, load_models
 
 
 class Model:
@@ -185,7 +185,7 @@ class Model:
                                       pred_steps=self.prediction_steps
                                       )
 
-            ground_truth = batch[:, :, 1:, :]  # TODO
+            ground_truth = batch[:, :, 1:, :]
 
             loss, nll, kl = losses.vae_loss(predictions=output,
                                             targets=ground_truth,
@@ -230,7 +230,17 @@ class Model:
         return log
 
     def test(self):
-        # TODO Load best encoder/ decoder
+        if self.do_save_models:
+            try:
+                self.encoder, self.decoder = load_models(self.encoder,
+                                                         self.decoder,
+                                                         config={
+                                                             'training': {
+                                                                 'load_path': os.path.join(self.log_path, "config.json")}})
+                self.encoder = self.encoder.to(self.device)
+                self.decoder = self.decoder.to(self.device)
+            except FileNotFoundError:
+                self.logger.debug("No models stored yet, test with models in memory.")
 
         self.encoder.eval()
         self.decoder.eval()
