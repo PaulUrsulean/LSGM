@@ -35,7 +35,7 @@ def vae_loss(predictions,
     else:
         log_prior = torch.Tensor(log_prior).to(device or torch.device('cpu'))
         kl_div = kl_categorical(edge_probs, log_prior, n_atoms, eps=eps)
-    return nll + beta * kl_div, nll, kl_div
+    return nll + kl_div, nll, kl_div
 
 
 """

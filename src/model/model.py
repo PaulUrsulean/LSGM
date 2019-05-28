@@ -164,6 +164,7 @@ class Model:
 
         for batch_id, batch in enumerate(self.train_loader):
             batch = batch[0].to(self.device)
+            assert (torch.isnan(batch).any().__bool__() is False)
 
             if batch.size(2) > self.timesteps:
                 # In case more timesteps are available, clip to avaid errors with dimensions
@@ -203,9 +204,17 @@ class Model:
                                             eps=self.eps,
                                             beta=self.loss_beta,
                                             prediction_variance=self.config['model']['decoder']['prediction_variance'])
+
             if torch.isnan(loss).any().__bool__():
-                self.logger.warn("Loss NAN")
-                self.logger.warn(nll.item())
+                self.logger.debug("Loss NAN")
+                self.logger.debug(nll.item())
+                enc_weights = torch.cat([param.view(-1) for param in self.encoder.parameters()])
+                dec_weights = torch.cat([param.view(-1) for param in self.decoder.parameters()])
+                self.logger.debug("Any encoder weights NaN:")
+                self.logger.debug(torch.isnan(enc_weights.clone().cpu()).any().__bool__())
+                self.logger.debug("Any decder weights NaN:")
+                self.logger.debug(torch.isnan(dec_weights.clone().cpu()).any().__bool__())
+
             loss.backward()
             self.optimizer.step()
 
