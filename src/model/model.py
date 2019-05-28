@@ -209,6 +209,7 @@ class Model:
             loss.backward()
 
             if self.clip_value is not None:
+                clip_grad_value_(self.encoder.parameters(), self.clip_value)
                 clip_grad_value_(self.decoder.parameters(), self.clip_value)
 
             self.optimizer.step()
