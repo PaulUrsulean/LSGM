@@ -1,13 +1,20 @@
 import argparse
 import logging
 
+import torch.nn
+import numpy as np
+
 from src.config_parser import ConfigParser, options
 from src.data_loaders.loaders import load_spring_data, load_random_data
-from src.model import Model
+from src.model.model import Model
 from src.model.modules import MLPEncoder, RNNDecoder, CNNEncoder, MLPDecoder
 
 
 def run_experiment(config):
+    # Random Seeds
+    torch.random.manual_seed(config['globals']['seed'])
+    np.random.seed(config['globals']['seed'])
+
     logger = logging.getLogger("experiment")
 
     logger.debug("Creating encoder and decoder")
