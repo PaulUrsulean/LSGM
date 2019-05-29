@@ -26,10 +26,6 @@ class Model:
         self.parse_config(config)
         self.config = config
 
-        # Random Seeds
-        torch.random.manual_seed(self.random_seed)
-        np.random.seed(self.random_seed)
-
         # Data Loaders
         self.data_loader = data_loaders
         self.train_loader = data_loaders['train_loader']
@@ -177,7 +173,7 @@ class Model:
             self.optimizer.zero_grad()
 
             logits = self.encoder(batch, self.rel_rec, self.rel_send)
-            edges = F.gumbel_softmax(logits, tau=self.temp, hard=self.sample_hard)
+            edges = gumbel_softmax(logits, tau=self.temp, hard=self.sample_hard)
             prob = my_softmax(logits, -1)
 
             if isinstance(self.decoder, RNNDecoder):
