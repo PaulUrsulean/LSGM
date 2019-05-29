@@ -13,7 +13,23 @@ import torch.nn.functional as F
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
 from src.model.modules import RNNDecoder
-from src.model.utils import gen_fully_connected, my_softmax, nll, kl
+from src.model.utils import gen_fully_connected, my_softmax, nll, kl, gumbel_softmax
+
+
+def check_nan_info_encoder(module, input, output):
+    print(f"Input to encoder contained {torch.isnan(input[0].data).sum().__int__()} NaN values.")
+    print(f"Output of encoder contained {torch.isnan(output.data).sum().__int__()} NaN values.")
+    print(f"Input to encoder contained {torch.isnan(input[0].data).nonzero()} NaN values.")
+    print(f"Output of encoder contained {torch.isnan(output.data).nonzero()} NaN values.")
+
+
+def check_nan_info_decoder(module, input, output):
+    print(f"Input to decoder contained {torch.isnan(input[0].data).sum().__int__()} NaN values.")
+    # print(f"Graph given to decoder contained {torch.isnan(input[1].data).sum().__int__()} NaN values.")
+    print(f"Output of decoder contained {torch.isnan(output.data).sum().__int__()} NaN values.")
+    # print(f"Graph given to decoder contained {torch.isnan(input[1].data).nonzero()} NaN values.")
+    print(f"Input to decoder contained {torch.isnan(input[0].data).nonzero()} NaN values.")
+    print(f"Output of decoder contained {torch.isnan(output.data).nonzero()} NaN values.")
 
 
 class Model:
@@ -46,6 +62,9 @@ class Model:
         # Move models to gpu
         self.encoder = encoder.to(self.device)
         self.decoder = decoder.to(self.device)
+
+        encoder.register_forward_hook(check_nan_info_encoder)
+        decoder.register_forward_hook(check_nan_info_decoder)
 
         self.do_validation = True
 
@@ -160,11 +179,12 @@ class Model:
 
         for batch_id, batch in enumerate(self.train_loader):
             batch = batch[0].to(self.device)
+            # TODO: Effect of Variable
             assert (torch.isnan(batch).any().__bool__() is False)
 
             if batch.size(2) > self.timesteps:
                 # In case more timesteps are available, clip to avaid errors with dimensions
-                batch = batch[:, :, :self.timesteps, :]
+                batch = batch[:, :, :self.timesteps, :]  # TODO Test when remoevvd
 
             self.rel_rec, self.rel_send = gen_fully_connected(self.n_atoms
                                                               , device=self.device)
@@ -201,8 +221,10 @@ class Model:
                                             beta=self.loss_beta,
                                             prediction_variance=self.config['model']['decoder']['prediction_variance'])
 
-            if torch.isnan(loss).any().__bool__():
-                self.logger.debug("Loss NAN")
+            if torch.isnan(loss.data).any().__bool__():
+                print("Loss NAN")
+                print(f"NLL NaN: {torch.isnan(nll.data).any().__bool__()}")
+                print(f"KL NaN: {torch.isnan(kl.data).any().__bool__()}")
                 self.logger.debug(nll.item())
                 enc_weights = torch.cat([param.view(-1) for param in self.encoder.parameters()])
                 dec_weights = torch.cat([param.view(-1) for param in self.decoder.parameters()])
@@ -218,26 +240,26 @@ class Model:
             self.writer.set_step(epoch * len(self.train_loader) + batch_id)
             self.writer.add_scalar('loss', loss.item())
 
-            enc_weights = torch.cat([param.view(-1) for param in self.encoder.parameters()])
-            dec_weights = torch.cat([param.view(-1) for param in self.decoder.parameters()])
-            self.writer.add_histogram("encoder_weights", enc_weights.clone().cpu().data.numpy())
-            self.writer.add_histogram("decoder_weights", dec_weights.clone().cpu().data.numpy())
-
-            enc_grads = torch.cat([param.grad.view(-1) for param in self.encoder.parameters()])
-            dec_grads = torch.cat(
-                [param.grad.view(-1) for param in self.decoder.parameters() if param.grad is not None])
-            self.writer.add_histogram("encoder_grads", enc_grads.clone().cpu().data.numpy())
-            if dec_weights is not None:
-                self.writer.add_histogram("decoder_grads", dec_grads.clone().cpu().data.numpy())
-
-            for name, param in self.encoder.named_parameters():
-                self.writer.add_histogram(name, param.clone().cpu().data.numpy())
-                self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
-
-            for name, param in self.decoder.named_parameters():
-                self.writer.add_histogram(name, param.clone().cpu().data.numpy())
-                if param.grad is not None:
-                    self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
+            # enc_weights = torch.cat([param.view(-1) for param in self.encoder.parameters()])
+            # dec_weights = torch.cat([param.view(-1) for param in self.decoder.parameters()])
+            # self.writer.add_histogram("encoder_weights", enc_weights.clone().cpu().data.numpy())
+            # self.writer.add_histogram("decoder_weights", dec_weights.clone().cpu().data.numpy())
+            #
+            # enc_grads = torch.cat([param.grad.view(-1) for param in self.encoder.parameters()])
+            # dec_grads = torch.cat(
+            #    [param.grad.view(-1) for param in self.decoder.parameters() if param.grad is not None])
+            # self.writer.add_histogram("encoder_grads", enc_grads.clone().cpu().data.numpy())
+            # if dec_weights is not None:
+            #    self.writer.add_histogram("decoder_grads", dec_grads.clone().cpu().data.numpy())
+            #
+            # for name, param in self.encoder.named_parameters():
+            #    self.writer.add_histogram(name, param.clone().cpu().data.numpy())
+            #    self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
+            #
+            # for name, param in self.decoder.named_parameters():
+            #    self.writer.add_histogram(name, param.clone().cpu().data.numpy())
+            #    if param.grad is not None:
+            #        self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
 
             self.writer.add_scalar('learning_rate', self.lr_scheduler.get_lr()[-1])
 

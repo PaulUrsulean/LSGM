@@ -59,6 +59,12 @@ def kl_categorical_uniform(preds, num_atoms, num_edge_types, add_const=False,
 
 def nll_gaussian(preds, target, variance, add_const=False):
     neg_log_p = ((preds - target) ** 2 / (2 * variance))
+    if torch.isnan(neg_log_p).any().__bool__():
+        print(neg_log_p, preds, target)
+        print(torch.isnan(preds).any().__bool__())
+        print(torch.isnan(target).any().__bool__())
+        print(torch.isnan(preds).nonzero())
+        print(torch.isnan(target).nonzero())
     if add_const:
         const = 0.5 * np.log(2 * np.pi * variance)
         neg_log_p += const
