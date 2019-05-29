@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.nn.utils import clip_grad_value_
 
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
@@ -102,6 +103,7 @@ class Model:
 
         self.random_seed = config['globals']['seed']
         self.logger_config_path = config['logging']['logger_config']
+        self.clip_value = config['training']['grad_clip_value']
         self.early_stopping_mode = config['training']['early_stopping_mode']
         self.use_early_stopping = config['training']['use_early_stopping']
         self.early_stopping_patience = config['training']['early_stopping_patience']
@@ -234,6 +236,11 @@ class Model:
                 self.logger.debug(torch.isnan(dec_weights.clone().cpu()).any().__bool__())
 
             loss.backward()
+
+            if self.clip_value is not None:
+                clip_grad_value_(self.encoder.parameters(), self.clip_value)
+                clip_grad_value_(self.decoder.parameters(), self.clip_value)
+
             self.optimizer.step()
 
             # Tensorboard writer
@@ -247,19 +254,19 @@ class Model:
             #
             # enc_grads = torch.cat([param.grad.view(-1) for param in self.encoder.parameters()])
             # dec_grads = torch.cat(
-            #    [param.grad.view(-1) for param in self.decoder.parameters() if param.grad is not None])
+            #     [param.grad.view(-1) for param in self.decoder.parameters() if param.grad is not None])
             # self.writer.add_histogram("encoder_grads", enc_grads.clone().cpu().data.numpy())
             # if dec_weights is not None:
-            #    self.writer.add_histogram("decoder_grads", dec_grads.clone().cpu().data.numpy())
+            #     self.writer.add_histogram("decoder_grads", dec_grads.clone().cpu().data.numpy())
             #
             # for name, param in self.encoder.named_parameters():
-            #    self.writer.add_histogram(name, param.clone().cpu().data.numpy())
-            #    self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
+            #     self.writer.add_histogram(name, param.clone().cpu().data.numpy())
+            #     self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
             #
             # for name, param in self.decoder.named_parameters():
-            #    self.writer.add_histogram(name, param.clone().cpu().data.numpy())
-            #    if param.grad is not None:
-            #        self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
+            #     self.writer.add_histogram(name, param.clone().cpu().data.numpy())
+            #     if param.grad is not None:
+            #         self.writer.add_histogram(name + "_grad", param.grad.clone().cpu().data.numpy())
 
             self.writer.add_scalar('learning_rate', self.lr_scheduler.get_lr()[-1])
 

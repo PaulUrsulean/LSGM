@@ -112,6 +112,7 @@ options = [
     CustomArgs('--lr', type=float, target=('training', 'optimizer', 'learning_rate')),  # TODO betas?
     CustomArgs('--scheduler-stepsize', type=int, target=('training', 'scheduler', 'stepsize')),
     CustomArgs('--scheduler-gamma', type=float, target=('training', 'scheduler', 'gamma')),
+    CustomArgs('--grad-clip-value', type=float, target=('training', 'grad_clip_value')),
 
     # Data
     CustomArgs('--n-timesteps', type=int, target=('data', 'timesteps')),
