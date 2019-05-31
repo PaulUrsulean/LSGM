@@ -9,11 +9,13 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.autograd import Variable
+from torch.nn.utils import clip_grad_value_
 
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
 from src.model.modules import RNNDecoder
-from src.model.utils import gen_fully_connected, my_softmax, nll, kl, load_models
+from src.model.utils import gen_fully_connected, my_softmax, nll, kl, load_models, gumbel_softmax
 
 
 class Model:
@@ -22,13 +24,8 @@ class Model:
                  data_loaders,
                  config):
 
-        # Parse Config and set model attributes
         self.parse_config(config)
         self.config = config
-
-        # Random Seeds
-        torch.random.manual_seed(self.random_seed)
-        np.random.seed(self.random_seed)
 
         # Data Loaders
         self.data_loader = data_loaders
@@ -66,6 +63,10 @@ class Model:
         assert (self.early_stopping_mode in ['min', 'max'])
         self.mnt_best = inf if self.early_stopping_mode == 'min' else -inf
 
+        # Parse Config and set model attributes
+        self.rel_rec, self.rel_send = gen_fully_connected(self.n_atoms
+                                                          , device=self.device)
+
     def setup_save_dir(self, config):
         save_dir = Path(config['logging']['log_dir'])
         exp_folder_name = time.asctime().replace(' ', '_').replace(':', '_') + str(hash(self))[:5]
@@ -84,6 +85,7 @@ class Model:
 
         self.random_seed = config['globals']['seed']
         self.logger_config_path = config['logging']['logger_config']
+        self.clip_value = config['training']['grad_clip_value']
         self.early_stopping_mode = config['training']['early_stopping_mode']
         self.use_early_stopping = config['training']['use_early_stopping']
         self.early_stopping_patience = config['training']['early_stopping_patience']
@@ -101,7 +103,6 @@ class Model:
         self.sample_hard = config['model']['hard']
 
         self.n_edge_types = config['model']['n_edge_types']
-
         self.log_prior = config['globals']['prior']  # TODO
         self.add_const = config['globals']['add_const']
         self.eps = config['globals']['eps']
@@ -109,6 +110,7 @@ class Model:
         self.prediction_var = config['model']['decoder']['prediction_variance']
 
         self.epochs = config['training']['epochs']
+        self.dynamic_graph = config['model']['dynamic_graph']
 
         self.log_step = config['logging']['log_step']
 
@@ -152,11 +154,15 @@ class Model:
         :return:
         """
 
+        self.encoder.train()
+        self.decoder.train()
+
         total_loss = 0
         total_metrics = np.zeros(len(self.metrics))
 
         for batch_id, batch in enumerate(self.train_loader):
             batch = batch[0].to(self.device)
+            batch = Variable(batch)
 
             if batch.size(2) > self.timesteps:
                 # In case more timesteps are available, clip to avaid errors with dimensions
@@ -168,14 +174,13 @@ class Model:
             self.optimizer.zero_grad()
 
             logits = self.encoder(batch, self.rel_rec, self.rel_send)
-            edges = F.gumbel_softmax(logits, tau=self.temp, hard=self.sample_hard)
+            edges = gumbel_softmax(logits, tau=self.temp, hard=self.sample_hard)
             prob = my_softmax(logits, -1)
 
             if isinstance(self.decoder, RNNDecoder):
                 output = self.decoder(batch, edges,
-                                      pred_steps=self.prediction_steps
-                                      ,
-                                      burn_in=self.burn_in,
+                                      pred_steps=self.prediction_steps,  # In implementation hard-coded 100
+                                      burn_in=True,
                                       burn_in_steps=self.timesteps - self.prediction_steps)
             else:
                 output = self.decoder(batch,
@@ -197,12 +202,16 @@ class Model:
                                             eps=self.eps,
                                             beta=self.loss_beta,
                                             prediction_variance=self.config['model']['decoder']['prediction_variance'])
-
             loss.backward()
+
+            if self.clip_value is not None:
+                clip_grad_value_(self.encoder.parameters(), self.clip_value)
+                clip_grad_value_(self.decoder.parameters(), self.clip_value)
+
             self.optimizer.step()
 
             # Tensorboard writer
-            self.writer.set_step((epoch - 1) * len(self.train_loader) + batch_id)
+            self.writer.set_step(epoch * len(self.train_loader) + batch_id)
             self.writer.add_scalar('loss', loss.item())
 
             total_loss += loss.item()
@@ -236,7 +245,8 @@ class Model:
                                                          self.decoder,
                                                          config={
                                                              'training': {
-                                                                 'load_path': os.path.join(self.log_path, "config.json")}})
+                                                                 'load_path': os.path.join(self.log_path,
+                                                                                           "config.json")}})
                 self.encoder = self.encoder.to(self.device)
                 self.decoder = self.decoder.to(self.device)
             except FileNotFoundError:
@@ -245,14 +255,12 @@ class Model:
         self.encoder.eval()
         self.decoder.eval()
 
-        total_loss = 0
+        test_loss = 0.0
+        tot_mse = 0.0
         total_test_metrics = np.zeros(len(self.metrics))
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.test_loader):
                 data = data[0].to(self.device)
-
-                self.rel_rec, self.rel_send = gen_fully_connected(self.n_atoms
-                                                                  , device=self.device)
 
                 assert (data.size(2) - self.timesteps >= self.timesteps)
 
@@ -260,7 +268,7 @@ class Model:
                 data_decoder = data[:, :, -self.timesteps:, :].contiguous()
 
                 logits = self.encoder(data_encoder, self.rel_rec, self.rel_send)
-                edges = F.gumbel_softmax(logits, tau=self.temp, hard=True)
+                edges = gumbel_softmax(logits, tau=self.temp, hard=True)
                 prob = my_softmax(logits, -1)
 
                 output = self.decoder(data_decoder,
@@ -282,11 +290,39 @@ class Model:
                                                 beta=self.loss_beta,
                                                 prediction_variance=self.prediction_var)
 
-                total_loss += loss.item()
+                test_loss += loss.item()
                 total_test_metrics += self._eval_metrics(output, ground_truth, nll=nll, kl=kl, log=False)
 
+                # For plotting purposes
+                if isinstance(self.decoder, RNNDecoder):
+                    if self.dynamic_graph:
+                        # Only makes sense when time-series is long enough
+                        output = self.decoder(data, edges, self.rel_rec, self.rel_send, 100,
+                                              burn_in=True, burn_in_steps=self.timesteps,
+                                              dynamic_graph=True, encoder=self.encoder,
+                                              temp=self.temp)
+                    else:
+                        output = self.decoder(data, edges, self.rel_rec, self.rel_send, 100,
+                                              burn_in=True, burn_in_steps=self.timesteps)
+                    output = output[:, :, self.timesteps:self.timesteps + 21, :]
+                    target = data[:, :, self.timesteps:self.timesteps + 21, :]
+                    # TODO: In paper, why? Why second one negative
+                    # output = output[:, :, args.timesteps:, :]
+                    # target = data[:, :, -args.timesteps:, :]
+                    #
+                else:
+                    data_plot = data[:, :, self.timesteps:self.timesteps + 21,
+                                :].contiguous()
+                    output = self.decoder(data_plot, edges, self.rel_rec, self.rel_send,
+                                          20)  # 20 in paper imp
+                    target = data_plot[:, :, 1:, :]
+
+                mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
+                tot_mse += mse.data.cpu().numpy()
+
         res = {
-            'test_loss': total_loss / len(self.test_loader),
+            'test_loss': test_loss / len(self.test_loader),
+            'test_full_loss': list(float(f) for f in (tot_mse / len(self.test_loader))),
             'test_metrics': (total_test_metrics / len(self.test_loader)).tolist()
         }
 
@@ -298,6 +334,7 @@ class Model:
             else:
                 log[key] = value
 
+        self.logger.debug(res)
         self.save_dict(log, 'test.json', self.log_path)
 
         return log
@@ -322,20 +359,11 @@ class Model:
                     data = data[:, :, :self.timesteps, :]
 
                 logits = self.encoder(data, self.rel_rec, self.rel_send)
-                edges = F.gumbel_softmax(logits, tau=self.temp, hard=True)
+                edges = gumbel_softmax(logits, tau=self.temp, hard=True)
                 prob = my_softmax(logits, -1)
 
-                if isinstance(self.decoder, RNNDecoder):
-                    output = self.decoder(data, edges,
-                                          pred_steps=1,  # Their validation loss uses teacher forcing
-                                          burn_in=self.burn_in,
-                                          burn_in_steps=self.timesteps - self.prediction_steps)
-                else:
-                    output = self.decoder(data,
-                                          rel_type=edges,
-                                          rel_rec=self.rel_rec,
-                                          rel_send=self.rel_send,
-                                          pred_steps=self.prediction_steps)
+                # validation output uses teacher forcing
+                output = self.decoder(data, edges, self.rel_rec, self.rel_send, 1)
 
                 ground_truth = data[:, :, 1:, :]
 
@@ -351,7 +379,7 @@ class Model:
                                                 prediction_variance=self.prediction_var)
 
                 # Tensorboard
-                self.writer.set_step((epoch - 1) * len(self.valid_loader) + batch_id, 'val')
+                self.writer.set_step(epoch * len(self.valid_loader) + batch_id, 'val')
                 self.writer.add_scalar('loss', loss.item())
 
                 total_loss += loss.item()
@@ -442,7 +470,7 @@ class Model:
                     self.rel_rec, self.rel_send = gen_fully_connected(data.size(1))
     
                     logits = self.encoder(data, self.rel_rec, self.rel_send)
-                    edges = F.gumbel_softmax(logits, tau=self.temp, hard=True)
+                    edges = gumbel_softmax(logits, tau=self.temp, hard=True)
     
                     # Convert from n x (n-1) matrix to n x n matrix
                     full_graph = torch.zeros(len(data), n_atoms, n_atoms, edge_types)

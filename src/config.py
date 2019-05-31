@@ -16,6 +16,7 @@ _default_config = dict(
         epochs=500,
         batch_size=128,
         load_path=None,
+        grad_clip_value=None,
         optimizer=dict(
             type='adam',
             learning_rate=0.0005,
