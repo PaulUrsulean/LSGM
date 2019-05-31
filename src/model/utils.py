@@ -1,12 +1,12 @@
-from pathlib import Path
 import os
+from pathlib import Path
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.distributions import Gumbel
 
-gumbel = Gumbel(0, 1)
 
 def sample_gumbel(shape, eps=1e-10):
     """
@@ -74,7 +74,6 @@ def gumbel_softmax(logits, tau=1, hard=False, eps=1e-10):
     return y
 
 
-
 def my_softmax(input, axis=1):
     # From https://github.com/ethanfetaya/NRI/blob/master/utils.py
     trans_input = input.transpose(axis, 0).contiguous()
@@ -137,7 +136,6 @@ def edge2node(m, adj_rec, adj_send):
     """
     incoming = torch.matmul(adj_rec.t(), m)
     return incoming / incoming.size(1)
-
 
 
 def load_models(enc: torch.nn.Module, dec: torch.nn.Module, config: dict):

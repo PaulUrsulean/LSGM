@@ -15,7 +15,7 @@ from torch.nn.utils import clip_grad_value_
 from src.logger import WriterTensorboardX, setup_logging
 from src.model import losses
 from src.model.modules import RNNDecoder
-from src.model.utils import gen_fully_connected, my_softmax, nll, kl, load_models
+from src.model.utils import gen_fully_connected, my_softmax, nll, kl, load_models, gumbel_softmax
 
 
 class Model:
@@ -103,7 +103,6 @@ class Model:
         self.sample_hard = config['model']['hard']
 
         self.n_edge_types = config['model']['n_edge_types']
-
         self.log_prior = config['globals']['prior']  # TODO
         self.add_const = config['globals']['add_const']
         self.eps = config['globals']['eps']
@@ -203,9 +202,6 @@ class Model:
                                             eps=self.eps,
                                             beta=self.loss_beta,
                                             prediction_variance=self.config['model']['decoder']['prediction_variance'])
-            if torch.isnan(loss).any().__bool__():
-                self.logger.warn("Loss NAN")
-                self.logger.warn(nll.item())
             loss.backward()
 
             if self.clip_value is not None:
@@ -249,7 +245,8 @@ class Model:
                                                          self.decoder,
                                                          config={
                                                              'training': {
-                                                                 'load_path': os.path.join(self.log_path, "config.json")}})
+                                                                 'load_path': os.path.join(self.log_path,
+                                                                                           "config.json")}})
                 self.encoder = self.encoder.to(self.device)
                 self.decoder = self.decoder.to(self.device)
             except FileNotFoundError:
@@ -264,7 +261,6 @@ class Model:
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.test_loader):
                 data = data[0].to(self.device)
-                batch = Variable(data)
 
                 assert (data.size(2) - self.timesteps >= self.timesteps)
 
@@ -272,7 +268,7 @@ class Model:
                 data_decoder = data[:, :, -self.timesteps:, :].contiguous()
 
                 logits = self.encoder(data_encoder, self.rel_rec, self.rel_send)
-                edges = F.gumbel_softmax(logits, tau=self.temp, hard=True)
+                edges = gumbel_softmax(logits, tau=self.temp, hard=True)
                 prob = my_softmax(logits, -1)
 
                 output = self.decoder(data_decoder,
@@ -357,14 +353,13 @@ class Model:
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.valid_loader):
                 data = data[0].to(self.device)
-                batch = Variable(data)
 
                 if data.size(2) > self.timesteps:
                     # In case more timesteps are available, clip to avaid errors with dimensions
                     data = data[:, :, :self.timesteps, :]
 
                 logits = self.encoder(data, self.rel_rec, self.rel_send)
-                edges = F.gumbel_softmax(logits, tau=self.temp, hard=True)
+                edges = gumbel_softmax(logits, tau=self.temp, hard=True)
                 prob = my_softmax(logits, -1)
 
                 # validation output uses teacher forcing
@@ -384,7 +379,7 @@ class Model:
                                                 prediction_variance=self.prediction_var)
 
                 # Tensorboard
-                self.writer.set_step((epoch - 1) * len(self.valid_loader) + batch_id, 'val')
+                self.writer.set_step(epoch * len(self.valid_loader) + batch_id, 'val')
                 self.writer.add_scalar('loss', loss.item())
 
                 total_loss += loss.item()
@@ -475,7 +470,7 @@ class Model:
                     self.rel_rec, self.rel_send = gen_fully_connected(data.size(1))
     
                     logits = self.encoder(data, self.rel_rec, self.rel_send)
-                    edges = F.gumbel_softmax(logits, tau=self.temp, hard=True)
+                    edges = gumbel_softmax(logits, tau=self.temp, hard=True)
     
                     # Convert from n x (n-1) matrix to n x n matrix
                     full_graph = torch.zeros(len(data), n_atoms, n_atoms, edge_types)
