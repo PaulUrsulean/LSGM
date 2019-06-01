@@ -16,7 +16,7 @@ class WeatherDataset(Dataset):
     def __init__(self, n_samples, n_nodes, n_timesteps, features, filename=None, force_new=False, discard=False):
         """
         Generates the dataset with the given parameters, unless a similar dataset has been generated
-            before, in which case it is loaded from the file.
+            before, in which case it is by default loaded from the file.
         Args:
             n_samples(int): Number of simulations to fetch
             n_nodes(int): Number of atoms in the simulation
@@ -24,7 +24,9 @@ class WeatherDataset(Dataset):
             features(list(str)): The list of feature names to track at each time step
             filename(str): The name of the file to save to/load from. If the file already exists,
                 the data is loaded from it and checked whether it matches the required parameters,
-                unless the force_new parameter is set, in which case it is overwritten anyway
+                unless the force_new parameter is set, in which case it is overwritten anyway. If
+                the filename is not specified, the generator will default to a predetermined identifier
+                format based on the parameters of the generated set.
             force_new(boolean, optional): Force generation of a new set of simulations,
                 instead of using already existing ones from a file.
             discard(boolean, optional): Whether to discard the generated data or to save

@@ -89,11 +89,31 @@ def load_spring_data(batch_size=128, suffix='', path="data/"):
         test_loader=test_data_loader
     )
 
-def load_weather_data(batch_size, n_samples, n_nodes, n_timesteps, features, train_valid_test_split=[80, 10, 10], force_new=False):
-    dset = WeatherDataset(n_samples, n_nodes, n_timesteps, features, force_new)
+def load_weather_data(batch_size, n_samples, n_nodes, n_timesteps, features, train_valid_test_split=[80, 10, 10], filename=None, force_new=False, discard=False):
+    """
+    Generates the dataset with the given parameters, unless a similar dataset has been generated
+        before, in which case it is by default loaded from the file.
+    Args:
+        n_samples(int): Number of simulations to fetch
+        n_nodes(int): Number of atoms in the simulation
+        n_timesteps(int): Number of timesteps in each simulation
+        features(list(str)): The list of feature names to track at each time step
+        filename(str): The name of the file to save to/load from. If the file already exists,
+            the data is loaded from it and checked whether it matches the required parameters,
+            unless the force_new parameter is set, in which case it is overwritten anyway. If
+            the filename is not specified, the generator will default to a predetermined identifier
+            format based on the parameters of the generated set.
+        force_new(boolean, optional): Force generation of a new set of simulations,
+            instead of using already existing ones from a file.
+        discard(boolean, optional): Whether to discard the generated data or to save
+            it, useful for debugging. Does not apply if filename is specified
+    """
+    dset = WeatherDataset(n_samples, n_nodes, n_timesteps, features, filename, force_new, discard)
     assert len(train_valid_test_split) == 3 and sum(train_valid_test_split) == 100, "Invalid split given, the 3 values must sum to 100"
+    
     n_train = int(len(dset)*(train_valid_test_split[0]/100))
     n_valid = int(len(dset)*(train_valid_test_split[1]/100))
+    
     return dict(
         train_loader = DataLoader(dset[:n_train], batch_size=batch_size),
         valid_loader = DataLoader(dset[n_train:n_train+n_valid], batch_size=batch_size)
