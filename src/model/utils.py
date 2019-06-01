@@ -161,6 +161,30 @@ def load_models(enc: torch.nn.Module, dec: torch.nn.Module, config: dict):
     return enc, dec
 
 
+def load_lstm_models(rnn: torch.nn.Module, config:dict):
+
+    models_path = config['training']['load_path']
+    path = Path(models_path).parent / "models"
+
+    # Find different models for each epoch
+    max_epoch=-1
+    for f in os.listdir(path):
+        epoch = int(f.split("_epoch")[-1].split(".pt")[0])
+        max_epoch = max(epoch, max_epoch)
+
+    if max_epoch == -1:
+        raise FileNotFoundError(f"No models found under {models_path}")
+
+    rnn_file = path / f"rnn_epoch{max_epoch}".pt
+    rnn.load_state_dict(torch.load(rnn_file))
+
+    print(f"Loaded rnn {rnn_file}")
+    config['training']['load_path']=None
+    return rnn
+
+
+
+
 def nll():
     pass
 
