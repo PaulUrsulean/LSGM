@@ -43,6 +43,15 @@ _default_config = dict(
             suffix='_springs5',
             atoms=5,
             dims=4
+        ),
+        weather=dict(
+            atoms=3,
+            dims=2,
+            examples=10000,
+            timesteps=70,
+            force_new=False,
+            discard=False,
+            splits=[72, 14, 14]  # TODO Make configurable
         )
     ),
 

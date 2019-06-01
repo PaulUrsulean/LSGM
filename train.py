@@ -1,11 +1,11 @@
 import argparse
 import logging
 
-import torch.nn
 import numpy as np
+import torch.nn
 
 from src.config_parser import ConfigParser, options
-from src.data_loaders.loaders import load_spring_data, load_random_data
+from src.data_loaders.loaders import load_spring_data, load_random_data, load_weather_data
 from src.model.model import Model
 from src.model.modules import MLPEncoder, RNNDecoder, CNNEncoder, MLPDecoder
 from src.model.utils import load_models
@@ -36,6 +36,16 @@ def run_experiment(config):
                                         n_examples=config['data']['random']['examples'],
                                         n_dims=config['data']['random']['dims'],
                                         n_timesteps=config['data']['random']['timesteps'])
+    elif config['data']['name'] == 'weather':
+        data_loaders = load_weather_data(batch_size=config['training']['batch_size'],
+                                         n_samples=config['data']['weather']['examples'],
+                                         n_nodes=config['data']['weather']['atoms'],
+                                         n_timesteps=config['data']['weather']['timesteps'],
+                                         features=['avg_temp', 'rainfall'],  # TODO Configurable
+                                         filename=config['data']['path'],
+                                         force_new=config['data']['weather']['force_new'],
+                                         discard=config['data']['weather']['discard'],
+                                         train_valid_test_split=config['data']['weather']['splits'])
     else:
         raise NotImplementedError(config['data']['name'])
 

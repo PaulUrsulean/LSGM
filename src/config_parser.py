@@ -2,9 +2,9 @@ import argparse
 import collections
 import json
 from collections import OrderedDict
-from pathlib import Path
 from functools import reduce
 from operator import getitem
+from pathlib import Path
 
 from src.config import _default_config
 
@@ -116,7 +116,7 @@ options = [
     CustomArgs('--scheduler-gamma', type=float, target=('training', 'scheduler', 'gamma')),
     CustomArgs('--grad-clip-value', type=float, target=('training', 'grad_clip_value')),
 
-    # Data
+    # Spring Data
     CustomArgs('--n-timesteps', type=int, target=('data', 'timesteps')),
     CustomArgs('--dataset-name', type=str, target=('data', 'name')),
     CustomArgs('--dataset-path', type=str, target=('data', 'path')),
@@ -127,9 +127,12 @@ options = [
     CustomArgs('--random-data-timesteps', type=int, target=('data', 'random', 'timesteps')),
     CustomArgs('--random-data-examples', type=int, target=('data', 'random', 'examples')),
 
-    # CustomArgs('--n-atoms', type=int, target=('data', 'n_atoms')),
-
-    # TODO Add specifics for dataset?
+    # Weather Data
+    CustomArgs('--weather-data-examples', type=int, target=('data', 'weather', 'examples')),
+    CustomArgs('--weather-data-atoms', type=int, target=('data', 'weather', 'atoms')),
+    CustomArgs('--weather-data-timesteps', type=int, target=('data', 'weather', 'timesteps')),
+    CustomArgs('--weather-data-force_new', type=int, target=('data', 'weather', 'force_new')),
+    CustomArgs('--weather-data-discard', type=int, target=('data', 'weather', 'discard')),
 
     # Loss
     CustomArgs('--loss-beta', type=float, target=('loss', 'beta')),

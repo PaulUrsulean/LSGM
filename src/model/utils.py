@@ -5,7 +5,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
-from torch.distributions import Gumbel
 
 
 def sample_gumbel(shape, eps=1e-10):

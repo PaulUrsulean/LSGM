@@ -42,6 +42,19 @@
             "suffix": "_springs5",
             "atoms": 5,
             "dims": 4
+        },
+        "weather": {
+            "atoms": 3,
+            "dims": 2,
+            "examples": 10000,
+            "timesteps": 70,
+            "force_new": false,
+            "discard": false,
+            "splits": [
+                72,
+                14,
+                14
+            ]
         }
     },
     "loss": {

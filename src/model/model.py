@@ -161,7 +161,11 @@ class Model:
         total_metrics = np.zeros(len(self.metrics))
 
         for batch_id, batch in enumerate(self.train_loader):
-            batch = batch[0].to(self.device)
+            if isinstance(batch, list):
+                batch = batch[0].to(self.device).float()
+            else:
+                batch = batch.to(self.device).float()
+
             batch = Variable(batch)
 
             if batch.size(2) > self.timesteps:
@@ -260,7 +264,10 @@ class Model:
         total_test_metrics = np.zeros(len(self.metrics))
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.test_loader):
-                data = data[0].to(self.device)
+                if isinstance(data, list):
+                    data = data[0].to(self.device).float()
+                else:
+                    data = data.to(self.device).float()
 
                 assert (data.size(2) - self.timesteps >= self.timesteps)
 
@@ -352,7 +359,10 @@ class Model:
         total_val_metrics = np.zeros(len(self.metrics))
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.valid_loader):
-                data = data[0].to(self.device)
+                if isinstance(data, list):
+                    data = data[0].to(self.device).float()
+                else:
+                    data = data.to(self.device).float()
 
                 if data.size(2) > self.timesteps:
                     # In case more timesteps are available, clip to avaid errors with dimensions
