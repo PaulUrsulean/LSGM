@@ -125,10 +125,10 @@ def load_weather_data(batch_size, n_samples, n_nodes, n_timesteps, features, tra
 def load_random_data(batch_size, n_atoms, n_examples, n_dims, n_timesteps):
     data_loaders = dict(
         train_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_timesteps, n_dims)),
-                                     batch_size=batch_size),
+                                     batch_size=batch_size, shuffle=True),
         valid_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_timesteps, n_dims)),
-                                     batch_size=batch_size),
+                                     batch_size=batch_size, shuffle=True),
         test_loader=data.DataLoader(TensorDataset(torch.rand(n_examples, n_atoms, n_timesteps, n_dims)),
-                                    batch_size=batch_size)
+                                    batch_size=batch_size, shuffle=True)
     )
     return data_loaders
