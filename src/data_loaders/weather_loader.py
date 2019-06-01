@@ -46,7 +46,7 @@ class WeatherDataset(Dataset):
     def __getitem__(self, idx):
         return self.dset[idx]
     
-    def generate_dset(self, filename = None, force_new=False, discard=False):
+    def generate_dset(self, filename, force_new, discard):
         """
         Actual meat and potatoes
         """
@@ -103,9 +103,10 @@ class WeatherDataset(Dataset):
                                                                                         + str(self.n_timesteps) + "_"
                                                                                         + str(len(self.features)) + "_"
                                                                                         + str(highest_index+1) + ".npy")
+            if not discard:
+                np.save(save_location, self.dset)
             
-            np.save(save_location, self.dset)
-            
+    # The following functions can potentially be made into abstract methods, or made to work directly on self. variables
     
     def remove_deep(self, src, matching_df, verbose=False):
         """
@@ -120,6 +121,11 @@ class WeatherDataset(Dataset):
         src.reset_index(inplace=True, drop=True)
 
         original_len = len(src)
+        
+        # Avoid extra work and later division by 0
+        if original_len == 0:
+            return 0
+        
         src_dates = src[['year','month','day']]
         trg_dates = matching_df[['year','month','day']].drop_duplicates()
         i=0
@@ -168,7 +174,6 @@ class WeatherDataset(Dataset):
             conf(list(str)): The list weather station IDs which constitute the configuration.
         """
         # Get timesteps for rows matching configuration, remove null values
-        # TODO: features are hard-coded for now
         df_conf = df[df['station_id'].isin(conf)].reset_index(drop=True)
         missing_rows = df_conf[df_conf['avg_temp'].isna() | df_conf['rainfall'].isna()]
         self.remove_deep(df_conf, missing_rows)
@@ -176,68 +181,128 @@ class WeatherDataset(Dataset):
         # Remove non-numerical values
         null_vals = (pd.to_numeric(df_conf['rainfall'], errors='coerce').isnull())
         null_indices = null_vals[null_vals==True].index
-        self.remove_deep(df_conf, df_conf.iloc[null_indices])
+        self.remove_deep(df_conf, df_conf.loc[null_indices])
 
         # Remove timesteps for which not all stations have data    
         self.align_dates(df_conf, ['avg_temp','rainfall'])
 
         return df_conf
 
-    def sample_configurations(self, df, n_samples, n_nodes, n_timesteps, features, threshold=0.1):
+    def sample_configurations(self, df, n_samples, n_nodes, n_timesteps, features, threshold=3):
+        """
+        Samples different combinations of weather stations from the pool of candidates, and selectively
+            applies the propagated deletion operations specified above for each sample, so as to get all
+            possible simulations from each.
+        Args:
+            n_samples(int): Number of simulations to fetch
+            n_nodes(int): Number of atoms in the simulation
+            n_timesteps(int): Number of timesteps in each simulation
+            features(list(str)): The list of feature names to track at each time step
+            threshold(int): Tolerance for consecutive missing dates before splitting into separate groups.
+        """
+        
+        # Add column in datetime format, should standardize to use this everywhere in this file
+        # but it is a time-consuming process which doesn't have much benefit outside of elegance.
+        if 'date' not in df.columns:
+            df['date'] = pd.to_datetime(df[['year','month','day']])
+        
         candidates = np.array(df['station_id'].unique())
         
-        #Hardcoded removal, TODO
-        candidates = np.delete(candidates, np.argwhere(candidates=='0370B'))
-        
         counter = df.groupby('station_id').count()
-
-        # Ignore stations which don't have enough entries for any one feature
-        # Can maybe remove this, since there is a similar check later in this function
-        for feature in features:
-            total_dates = counter[feature].max()
-            under_threshold = np.array(counter[counter[feature] < min((total_dates * threshold), 150)].index)
-            for station in under_threshold:
-                np.delete(candidates, np.argwhere(candidates==station))
 
         # The combinations of stations that we choose to go with
         configurations = []
 
         # The number of 'simulations' generated so far
         current_samples = 0
+        
+        sample_df_size = n_timesteps * n_nodes
 
         # Numpy format dataset
         dataset = np.empty((0, n_nodes, n_timesteps, len(features)))
 
         while current_samples < n_samples:
             sample = np.random.choice(candidates, size=n_nodes, replace=False)
-            df_conf = self.get_configuration(df, sample)
+                        
+            # Skip iteration if we come across a duplicate (1/75287520 chance for 5 nodes)
+            if self.nested_list_member(configurations, sample):
+                continue
             
-            if len(df_conf) >= n_timesteps * n_nodes:
-                samples_in_df = int(len(df_conf) / (n_timesteps * n_nodes))
-
-                samples_in_df = samples_in_df if current_samples + samples_in_df < n_samples else n_samples - current_samples
-
-                current_samples += samples_in_df
-                configurations.append(sample)
-
-                # Sort values by date
-                df_conf = df_conf.sort_values(by=['year', 'month', 'day'])
-
-                # Get first n values, with n being the correct number of rows for the matrix shape
-                df_conf = df_conf.head(samples_in_df * n_timesteps * n_nodes)
-
-                # Group by station id
-                grouped = df_conf.groupby('station_id')[features]
-
-                # Convert to numpy array with different groups in different dimensions
-                groups_np = np.array([grouped.get_group(s_id).values for s_id in sample], dtype=np.float32)
-
-                # Split numpy array by timesteps into different 'simulations'
-                groups_np = np.array(np.split(groups_np, samples_in_df, axis=1))
-
-                # Append to dataset array
-                dataset = np.append(dataset, groups_np, axis=0)
+            df_conf = self.get_configuration(df, sample)
+                        
+            # If all stations made it through the deletion process, and there are enough time steps for >=1 sample
+            if len(df_conf['station_id'].unique()) == n_nodes and len(df_conf) >= sample_df_size:
                 
-                print("Progress: {}/{}".format(current_samples, n_samples))
+                # Sort values by date
+                df_conf = df_conf.sort_values(by='date')
+                
+                # Turn datetime objects into ordinal values in order to easily find consecutive clusters
+                ordinal_dates = df_conf['date'].apply(pd.datetime.toordinal)
+                
+                # Group values into quasi-consecutive clusters (up to a threshold specified in function param "threshold")
+                # Here we do not cluster unique dates, but rows in the dataframe sorted by date, for which there are n_nodes for
+                # each unique date. These naturally get clustered into the same bucket
+                consecutive = (ordinal_dates.diff() > threshold).astype('int').cumsum()
+                grouped = consecutive.groupby(consecutive)
+                
+                clusters_indices = []
+                                
+                # Choose consecutive groups which are longer than the number of timesteps required for each sample
+                for g in grouped.groups:
+                    group_indices = grouped.get_group(g).index
+                    if len(group_indices) >= sample_df_size:
+                        clusters_indices.append(group_indices)
+                                                
+                for cluster in clusters_indices:
+                    
+                    # Determine the number of whole simulations we can use
+                    
+                    cluster_df = df_conf.loc[cluster].reset_index(drop=True)
+                    
+                    samples_in_cluster = len(cluster_df) // (sample_df_size)
+                    
+                    cluster_df = cluster_df.head(samples_in_cluster * sample_df_size)
+                    
+                    # Group by station id
+                    grouped = cluster_df.groupby('station_id')[features]
 
+                    # Convert to numpy array with different groups in different dimensions                
+                    groups_np = np.array([grouped.get_group(s_id).values for s_id in sample], dtype=np.float32)
+                    
+                    # Determine whether we need to use less samples than available, due to reaching size limit
+                    samples_to_use = samples_in_cluster if current_samples + samples_in_cluster <= n_samples else n_samples - current_samples
+                    
+                    current_samples += samples_to_use
+                    configurations.append(sample)
+                    
+                    # Split numpy array by timesteps into different 'simulations'
+                    groups_np = np.array(np.split(groups_np, samples_in_cluster, axis=1))
+                    
+                    # Sample simulations randomly if we need to lower the number due to reaching the required amount of samples in the dataset
+                    if samples_to_use < samples_in_cluster:
+                        sampled_simulations = np.random.choice(np.arange(samples_in_cluster), size=samples_to_use, replace=False)
+                        groups_np = groups_np[sampled_simulations]
+
+                    # Append to dataset array
+                    dataset = np.append(dataset, groups_np, axis=0)
+                
+
+                    if current_samples == n_samples:
+                        break
+
+                print("Progress: {}/{}".format(current_samples, n_samples))
+        
         return dataset, configurations
+
+    def nested_list_member(self, nested_list, element):
+        """
+        Utility function used for checking membership of a sample in the nested list of configurations
+            used so far. Necessary because the standard Python formulation of (elem in list) fails in
+        Args:
+            nested_list(list(list)): List containing list or np.array
+            element(list): Check whether this list element is contained in the list of lists.
+        """
+        for lst in nested_list:
+            if (lst==element).all():
+                return True
+        return False

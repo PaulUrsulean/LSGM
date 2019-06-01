@@ -3,6 +3,9 @@ from pathlib import Path
 
 import torch
 import numpy as np
+
+from weather_loader import WeatherDataset
+
 from torch.utils import data
 from torch.utils.data import TensorDataset, DataLoader
 
@@ -86,6 +89,16 @@ def load_spring_data(batch_size=128, suffix='', path="data/"):
         test_loader=test_data_loader
     )
 
+def load_weather_data(batch_size, n_samples, n_nodes, n_timesteps, features, train_valid_test_split=[80, 10, 10], force_new=False):
+    dset = WeatherDataset(n_samples, n_nodes, n_timesteps, features, force_new)
+    assert len(train_valid_test_split) == 3 and sum(train_valid_test_split) == 100, "Invalid split given, the 3 values must sum to 100"
+    n_train = int(len(dset)*(train_valid_test_split[0]/100))
+    n_valid = int(len(dset)*(train_valid_test_split[1]/100))
+    return dict(
+        train_loader = DataLoader(dset[:n_train], batch_size=batch_size),
+        valid_loader = DataLoader(dset[n_train:n_train+n_valid], batch_size=batch_size)
+        test_loader  = DataLoader(dset[n_train+n_valid:], batch_size=batch_size)
+    )
 
 def load_random_data(batch_size, n_atoms, n_examples, n_dims, n_timesteps):
     data_loaders = dict(
