@@ -150,14 +150,25 @@ def load_models(enc: torch.nn.Module, dec: torch.nn.Module, config: dict):
     if max_epoch == -1:
         raise FileNotFoundError(f"No models found under {models_path}")
 
-    encoder_file = path / f"encoder_epoch{max_epoch}.pt"
-    decoder_file = path / f"decoder_epoch{max_epoch}.pt"
-    enc.load_state_dict(torch.load(encoder_file))
-    dec.load_state_dict(torch.load(decoder_file))
+    load_weights(enc, path / f"encoder_epoch{max_epoch}.pt")
+    load_weights(dec, path / f"decoder_epoch{max_epoch}.pt")
 
-    print(f"Loaded encoder {encoder_file} and decoder {decoder_file}")
+    print(f"Loaded encoder and decoder from path {path} and epoch {max_epoch}.")
     config['training']['load_path'] = None
     return enc, dec
+
+
+def load_weights(model, path):
+    model.load_state_dict(torch.load(path))
+
+
+def get_offdiag_indices(num_nodes):
+    """Linear off-diagonal indices."""
+    ones = torch.ones(num_nodes, num_nodes)
+    eye = torch.eye(num_nodes, num_nodes)
+    offdiag_indices = (ones - eye).nonzero().t()
+    offdiag_indices = offdiag_indices[0] * num_nodes + offdiag_indices[1]
+    return offdiag_indices
 
 
 def nll():
