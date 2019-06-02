@@ -89,7 +89,7 @@ def load_spring_data(batch_size=128, suffix='', path="data/"):
 
 
 def load_weather_data(batch_size, n_samples, n_nodes, n_timesteps, features, train_valid_test_split=[80, 10, 10],
-                      filename=None, force_new=False, discard=False):
+                      filename=None, force_new=False, discard=False, normalize=True):
     """
     Generates the dataset with the given parameters, unless a similar dataset has been generated
         before, in which case it is by default loaded from the file.
@@ -107,18 +107,20 @@ def load_weather_data(batch_size, n_samples, n_nodes, n_timesteps, features, tra
             instead of using already existing ones from a file.
         discard(boolean, optional): Whether to discard the generated data or to save
             it, useful for debugging. Does not apply if filename is specified
+        normalize(boolean, optional): Whether to center data at mean 0 and scale to stddev 1. Defaults true
     """
+    # Normalization is activated when calling WeatherDataset.train_valid_test_split
     dset = WeatherDataset(n_samples, n_nodes, n_timesteps, features, filename, force_new, discard)
     assert len(train_valid_test_split) == 3 and sum(
         train_valid_test_split) == 100, "Invalid split given, the 3 values must sum to 100"
 
-    n_train = int(len(dset) * (train_valid_test_split[0] / 100))
-    n_valid = int(len(dset) * (train_valid_test_split[1] / 100))
+    # Makes actual WeatherDataset objects instead of just putting numpy arrays in the loader
+    train_set, valid_set, test_set = WeatherDataset.train_valid_test_split(dset, train_valid_test_split, normalize=normalize)
 
     return dict(
-        train_loader=DataLoader(dset[:n_train], batch_size=batch_size),
-        valid_loader=DataLoader(dset[n_train:n_train + n_valid], batch_size=batch_size),
-        test_loader=DataLoader(dset[n_train + n_valid:], batch_size=batch_size)
+        train_loader=DataLoader(train_set, batch_size=batch_size, shuffle=True),
+        valid_loader=DataLoader(valid_set, batch_size=batch_size, shuffle=True),
+        test_loader=DataLoader(test_set, batch_size=batch_size, shuffle=True)
     )
 
 
