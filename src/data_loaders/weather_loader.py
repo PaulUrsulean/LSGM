@@ -135,6 +135,7 @@ class WeatherDataset(Dataset):
             if os.path.isfile(join(data_dir, filename)):
                 already_exists = True
             fpath = join(data_dir, filename)
+            clean_fname = filename.replace("_partial","").replace(".npy","")
 
         # Whether to create a new file or use an existing one, if available
         if already_exists and not force_new and not from_partial:
@@ -143,28 +144,33 @@ class WeatherDataset(Dataset):
         
         else:
 
-            existing_config = []
-            
-            if from_partial:
-                assert filename is not None and already_exists and "partial" in filename, "Partial file not given or not found"
-                self.dset, existing_config = np.load(fpath, allow_pickle=True)
-                assert len(self.dset) < self.n_samples,"n_samples given is smaller than #samples in file, no need for partial"
-                assert self.dset.shape[1] == self.n_nodes and self.dset.shape[2] == self.n_timesteps and self.dset.shape[3] == len(self.features), "Incorrect shape for partial file"
-
             all_files = glob.glob(join(data_dir, "*.csv"))
             data = pd.concat((pd.read_csv(f) for f in all_files), ignore_index=True)
 
-            self.save_file_name = join(data_dir, filename) if filename is not None else join(data_dir,
+            existing_config = []
+
+            
+            if from_partial:
+                assert filename is not None and already_exists and "_partial" in filename, "Partial file not given or not found"
+                self.dset, existing_config = np.load(fpath, allow_pickle=True)
+                assert len(self.dset) < self.n_samples,"n_samples given is smaller than #samples in file, no need for partial"
+                assert self.dset.shape[1] == self.n_nodes and self.dset.shape[2] == self.n_timesteps and self.dset.shape[3] == len(self.features), "Incorrect shape for partial file"
+                print("Progress recovered from partial file, {} samples".format(len(self.dset)))
+
+            self.save_file_name = join(data_dir, clean_fname) if filename is not None else join(data_dir,
                                                                                         str(self.n_samples) + "_"
                                                                                         + str(self.n_nodes) + "_"
                                                                                         + str(self.n_timesteps) + "_"
                                                                                         + str(len(self.features)) + "_"
                                                                                         + str(highest_index+1))
 
-            self.dset, _ = self.sample_configurations(data, self.n_samples, self.n_nodes, self.n_timesteps, self.features, existing_config = existing_config)
+
+            partial_save_freq = 0 if discard else 1000
+
+            self.dset, _ = self.sample_configurations(data, self.n_samples, self.n_nodes, self.n_timesteps, self.features, existing_config = existing_config, partial_save_freq=partial_save_freq)
             
             if not discard:
-                np.save(self.save_file_name + ".npy", self.dset)
+                np.save(self.save_file_name, self.dset)
             
     # The following functions can potentially be made into abstract methods, or made to work directly on self. variables
     
@@ -275,7 +281,8 @@ class WeatherDataset(Dataset):
 
         sample_df_size = n_timesteps * n_nodes
 
-        partial_save_thresh = partial_save_freq if configurations == [] else len(self.dset) - (len(self.dset)%partial_save_freq)
+        partial_save_thresh = 0 if configurations == [] else len(self.dset) - (len(self.dset)%partial_save_freq)
+        partial_save_thresh += partial_save_freq
 
         # The number of 'simulations' generated so far
         current_samples = 0 if configurations == [] else len(self.dset)
@@ -353,9 +360,10 @@ class WeatherDataset(Dataset):
                         break
 
                     # Increase threshold by the frequency when it is passed to simulate modulo behavior for nonconsecutive values
-                    if current_samples >= partial_save_thresh:
+                    if current_samples >= partial_save_thresh and partial_save_freq != 0:
                         partial_save_thresh += partial_save_freq
                         np.save(self.save_file_name + "_partial", (dataset, configurations))
+                        print("{} samples progress saved in partial file {}".format(len(dataset), self.save_file_name + "_partial.npy"))
 
                 print("Progress: {}/{}".format(current_samples, n_samples))
         
