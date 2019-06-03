@@ -175,7 +175,7 @@ def load_lstm_models(rnn: torch.nn.Module, config:dict):
     if max_epoch == -1:
         raise FileNotFoundError(f"No models found under {models_path}")
 
-    rnn_file = path / f"rnn_epoch{max_epoch}".pt
+    rnn_file = path / f"rnn_epoch{max_epoch}.pt"
     rnn.load_state_dict(torch.load(rnn_file))
 
     print(f"Loaded rnn {rnn_file}")

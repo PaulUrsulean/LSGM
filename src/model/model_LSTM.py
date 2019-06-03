@@ -15,6 +15,7 @@ from pathlib import Path
 from src.logger import WriterTensorboardX, setup_logging
 from src. model.utils import my_softmax, nll, kl
 from src.model import losses
+from src.model.utils import load_models
 from src.model.utils import load_lstm_models
 from src.model.modules_LSTM import RNN
 
@@ -34,7 +35,9 @@ class RecurrentBaseline:
         self.valid_loader = data_loaders['valid_loader']
         self.test_loader = data_loaders['test_loader']
 
-        self.metrics = [F.mse_loss, nll, kl]
+        # For LSTM loss=nll and kl=none
+        # self.metrics = [F.mse_loss, nll, kl]
+        self.metrics = [F.mse_loss]
 
         self.optimizer = torch.optim.Adam(lr=self.learning_rate,
                                           betas=self.learning_betas,
@@ -161,11 +164,12 @@ class RecurrentBaseline:
         self.rnn.train()
 
         total_loss = 0
-        # total_metrics = np.zeros(len(self.metrics))
+        total_metrics = np.zeros(len(self.metrics))
 
         # training for single batch
         for batch_id, batch in enumerate(self.train_loader):
 
+            # for weather add if - loop :
             batch = batch[0].to(self.device)
             batch = Variable(batch)
 
@@ -177,8 +181,8 @@ class RecurrentBaseline:
             self.optimizer.zero_grad()
 
             output = self.rnn(inputs=batch,
-                              prediction_steps=self.prediction_steps,
-                              burn_in=self.burn_in,
+                              prediction_steps= 100,         # self.prediction_steps,
+                              burn_in=True,                     # for training burn_in = True
                               burn_in_steps=self.timesteps - self.prediction_steps
                               )
 
@@ -187,7 +191,7 @@ class RecurrentBaseline:
             loss = losses.nll_gaussian(preds=output,
                                        target=ground_truth,
                                        variance=self.prediction_var,
-                                       add_const=self.add_const
+                                       add_const=self.add_const       # add_const=False (default)
                                        )
 
             loss.backward()
@@ -197,14 +201,14 @@ class RecurrentBaseline:
 
             self.optimizer.step()
 
-            # mse = F.mse_loss(output, ground_truth)
-
             # Tensorboard writer
-            self.writer.set_step(epoch*len(self.train_loader)+batch_id)
+            self.writer.set_step(epoch*len(self.train_loader)+batch_id) #momentane batch-nr
             self.writer.add_scalar('loss', loss.item())
 
+
             total_loss += loss.item()
-            # total_metrics += self._eval_metrics(output, ground_truth, nll=nll, kl=None)
+            # Dummy replace afterwards kl=0
+            total_metrics += self._eval_metrics(output, ground_truth)
 
             if batch_id % self.log_step == 0:
                 self.logger.info('Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}'.format(
@@ -216,7 +220,7 @@ class RecurrentBaseline:
 
         log = {
             'loss': total_loss / len(self.data_loader),
-            #'metrics': (total_metrics / len(self.data_loader)).tolist()
+            'metrics': (total_metrics / len(self.data_loader)).tolist()
         }
 
         val_log = self._val_loss(epoch)
@@ -235,7 +239,7 @@ class RecurrentBaseline:
                                             config={
                                                 'training': {
                                                     'load_path': os.path.join(self.log_path,
-                                                                              "config.json")}})
+                                                                              "config_LSTM.json")}})
 
                 self.rnn=self.rnn.to(self.device)
 
@@ -247,10 +251,11 @@ class RecurrentBaseline:
 
         test_loss = 0.0
         tot_mse = 0.0
-        # total_test_metrics = np.zeros(len(self.metrics))
+        total_test_metrics = np.zeros(len(self.metrics))
 
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.test_loader):
+
                 data = data[0].to(self.device)
 
                 assert (data.size(2) - self.timesteps >= self.timesteps)
@@ -258,9 +263,7 @@ class RecurrentBaseline:
                 data_rnn = data[:, :, :self.timesteps, :].contiguous()
 
                 output = self.rnn(inputs=data_rnn,
-                                  prediction_steps=self.prediction_steps,
-                                  burn_in=self.burn_in,
-                                  burn_in_steps=self.timesteps
+                                  prediction_steps= 1 # self.prediction_steps,
                                   )
 
                 ground_truth = data_rnn[:, :, 1:, :]
@@ -272,40 +275,27 @@ class RecurrentBaseline:
                                            )
 
                 test_loss += loss.item()
-                # total_test_metrics += self._eval_metrics(output, ground_truth, nll=nll, kl=kl, log=False)
+                total_test_metrics += self._eval_metrics(output, ground_truth, log=False)
+
+
+                output = output[:, :, self.timesteps:self.timesteps + 20, :]
+                target = data[:, :, self.timesteps + 1:self.timesteps + 21, :]
 
                 # For plotting purposes
-                if isinstance(self.rnn, RNN):
-                    if self.dynamic_graph:
-                        # Only for long time-series
-                        output = self.rnn(data,
-                                          prediction_steps=self.prediction_steps,
-                                          burn_in=True,
-                                          burn_in_steps=self.timesteps)
-                    else:
-                        output = self.rnn(data,
-                                          prediction_steps=self.prediction_steps,
-                                          burn_in=True,
-                                          burn_in_steps=self.timesteps)
+                output = self.rnn(data, 100, burn_in=True,
+                               burn_in_steps=self.timesteps)
 
-                    output = output[:, :, self.timesteps:self.timesteps + 21, :]
-                    target = data[:, :, self.timesteps:self.timesteps + 21, :]
+                output = output[:, :, self.timesteps:self.timesteps + 20, :]
+                ground_truth = data[:, :, self.timesteps + 1:self.timesteps + 21, :]
 
-                else:
 
-                    data_plot = data[:, :, self.timesteps:self.timesteps + 21,
-                                :].contiguous()
-                    output = self.rnn(data_plot)
-
-                    target = data_plot[:, :, self.timesteps:self.timesteps + 21, :]
-
-                mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
+                mse = ((ground_truth - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
                 tot_mse += mse.data.cpu().numpy()
 
         res = {
             'test_loss': test_loss / len(self.test_loader),
             'test_full_loss': list(float(f) for f in (tot_mse / len(self.test_loader))),
-            #'test_metrics': (total_test_metrics / len(self.test_loader)).tolist()
+            'test_metrics': (total_test_metrics / len(self.test_loader)).tolist()
         }
 
         # Tidy up
@@ -331,20 +321,21 @@ class RecurrentBaseline:
         self.rnn.eval()
 
         total_loss = 0
-        # total_val_metrics = np.zeros(len(self.metrics))
+        total_val_metrics = np.zeros(len(self.metrics))
 
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.valid_loader):
+                # add for weather if-loop
                 data = data[0].to(self.device)
 
                 if data.size(2) > self.timesteps:
-                    # In case more timesteps are available, clip to avaid errors with dimensions
+                    # In case more timestep are available, clip to avaid errors with dimensions
                     data = data[:, :, :self.timesteps, :]
 
                 output = self.rnn(inputs=data,
-                                  prediction_steps=self.prediction_steps,
-                                  burn_in=self.burn_in,
-                                  burn_in_steps=self.timesteps - self.prediction_steps
+                                  prediction_steps=1         # self.prediction_steps,  see LSTM-baseline.py --> hard coded to 1
+                                  # burn_in=self.burn_in, # For validation burn_in=false ; leave on default
+                                  # burn_in_steps=self.timesteps - self.prediction_steps # burn_in_steps = 1 --> left on default
                                   )
                 ground_truth= data[:, :, 1:, :]
 
@@ -359,11 +350,11 @@ class RecurrentBaseline:
                 self.writer.add_scalar('loss', loss.item())
 
                 total_loss += loss.item()
-                # total_val_metrics += self._eval_metrics(output, ground_truth, nll=nll, kl=kl)
+                total_val_metrics += self._eval_metrics(output, ground_truth)
 
         return {
             'val_loss': total_loss / len(self.valid_loader),
-            # 'val_metrics': (total_val_metrics / len(self.valid_loader)).tolist()
+            'val_metrics': (total_val_metrics / len(self.valid_loader)).tolist()
         }
 
     def train(self):
@@ -377,9 +368,12 @@ class RecurrentBaseline:
 
         for epoch in range(0, self.epochs):
 
+            # return dict
+            # results: {train_log: {total_loss, metrics: {mse_loss, nll, kl=None}},
+            #               , val_log: {val_loss, val_metrics{F.mse_loss, nll, kl=None}}}
             result = self._train_epoch(epoch)
 
-            # save logged informations into log dict
+            # save logged information into log dict
             log = {'epoch': epoch}
             for key, value in result.items():
                 if key == 'metrics':
@@ -389,7 +383,7 @@ class RecurrentBaseline:
                 else:
                     log[key] = value
 
-            # print logged informations to the screen
+            # print logged information to the screen
             for key, value in log.items():
                 self.logger.info('    {:15s}: {}'.format(str(key), value))
 

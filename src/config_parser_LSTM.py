@@ -139,17 +139,20 @@ options = [
     CustomArgs('--temp', type=float, target=('model', 'temp')),
     CustomArgs('--burn-in', type=bool, target=('model', 'burn_in')),
     CustomArgs('--n-edges', type=int, target=('model', 'n_edge_types')),
+    CustomArgs('--prediction-var', type=float, target=('model', 'prediction_variance')),
+    CustomArgs('--hidden-dims', type=int, target=('model', 'hidden_dim')),
+    CustomArgs('--num-layers', type=int, target=('model', 'num_layers')),
 
     # Encoder
-    CustomArgs('--encoder', type=str, target=('model', 'encoder', 'model')),
-    CustomArgs('--encoder-hidden', type=int, target=('model', 'encoder', 'hidden_dim')),
-    CustomArgs('--encoder-dropout', type=float, target=('model', 'encoder', 'dropout')),
+    #CustomArgs('--encoder', type=str, target=('model', 'encoder', 'model')),
+    #CustomArgs('--encoder-hidden', type=int, target=('model', 'encoder', 'hidden_dim')),
+    #CustomArgs('--encoder-dropout', type=float, target=('model', 'encoder', 'dropout')),
 
     # Decoder
-    CustomArgs('--decoder', type=str, target=('model', 'decoder', 'model')),
-    CustomArgs('--decoder-hidden', type=int, target=('model', 'decoder', 'hidden_dim')),
-    CustomArgs('--decoder-dropout', type=float, target=('model', 'decoder', 'dropout')),
-    CustomArgs('--prediction-var', type=float, target=('model', 'decoder', 'prediction_variance')),
+    #CustomArgs('--decoder', type=str, target=('model', 'decoder', 'model')),
+    #CustomArgs('--decoder-hidden', type=int, target=('model', 'decoder', 'hidden_dim')),
+    #CustomArgs('--decoder-dropout', type=float, target=('model', 'decoder', 'dropout')),
+    #CustomArgs('--prediction-var', type=float, target=('model', 'decoder', 'prediction_variance')),
 
     # Logging
     CustomArgs('--log-freq', type=int, target=('logging', 'log_step')),

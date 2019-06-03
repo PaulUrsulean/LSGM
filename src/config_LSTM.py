@@ -15,6 +15,7 @@ _default_config_LSTM = dict(
         early_stopping_patience=50,
         epochs=500,
         batch_size=128,
+        load_path= None,
         grad_clip_value=None,
         optimizer=dict(
             type='adam',

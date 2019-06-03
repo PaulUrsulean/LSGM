@@ -55,26 +55,23 @@ def run_experiment(config):
     train_history = model.train()
     logger.debug(train_history[-1])
 
+    # test loggig
     logger.debug("Running evaluation")
     test_results = model.test()
     logger.debug(test_results)
 
 
-
-
-
 def create_rnn(config):
-
 
     dataset = config['data']['name']
     n_features = config['data'][dataset]['dims']
 
-    rnn = RNN(n_in= n_features,
-              n_hid=config['model']['hidden_dim'],
-              n_out= n_features,  #number of dimensions e.g. position, velocity
-              n_atoms=config['data'][dataset]['atoms'], #num of atoms in simulation
-              n_layers=config['model']['num_layers'],
-              do_prob=config['model']['dropout'])
+    rnn = RNN(n_in= n_features,                             # number of features
+              n_hid=config['model']['hidden_dim'],          # number of hidden units
+              n_out= n_features,                            # number of dimensions e.g. position, velocity
+              n_atoms=config['data'][dataset]['atoms'],     # num of atoms in simulation
+              n_layers=config['model']['num_layers'],       # number of LSTM-layers
+              do_prob=config['model']['dropout'])           # Dropout-rate
 
     return rnn
 
