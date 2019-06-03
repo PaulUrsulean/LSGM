@@ -132,6 +132,7 @@ options = [
     CustomArgs('--weather-data-atoms', type=int, target=('data', 'weather', 'atoms')),
     CustomArgs('--weather-data-timesteps', type=int, target=('data', 'weather', 'timesteps')),
     CustomArgs('--weather-data-force_new', type=int, target=('data', 'weather', 'force_new')),
+    CustomArgs('--weather-data-path', type=str, target=('data', 'weather', 'path')),
     CustomArgs('--weather-data-discard', type=int, target=('data', 'weather', 'discard')),
 
     # Loss

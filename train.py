@@ -29,7 +29,7 @@ def run_experiment(config):
     if config['data']['name'] == 'springs':
         data_loaders = load_spring_data(batch_size=config['training']['batch_size'],
                                         suffix=config['data']['springs']['suffix'],
-                                        path=config['data']['path'])
+                                        path=config['data']['springs']['path'])
     elif config['data']['name'] == 'random':
         data_loaders = load_random_data(batch_size=config['training']['batch_size'],
                                         n_atoms=config['data']['random']['atoms'],
@@ -42,7 +42,7 @@ def run_experiment(config):
                                          n_nodes=config['data']['weather']['atoms'],
                                          n_timesteps=config['data']['weather']['timesteps'],
                                          features=['avg_temp', 'rainfall'],  # TODO Configurable
-                                         filename=config['data']['path'],
+                                         filename=config['data']['weather']['path'],
                                          force_new=config['data']['weather']['force_new'],
                                          discard=config['data']['weather']['discard'],
                                          train_valid_test_split=config['data']['weather']['splits'])

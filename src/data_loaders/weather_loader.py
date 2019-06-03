@@ -13,7 +13,8 @@ class WeatherDataset(Dataset):
     """
     Wrapper class for the Spain weather dataset
     """
-    def __init__(self, n_samples, n_nodes, n_timesteps, features, filename=None, force_new=False, discard=False, from_partial=False, normalize=False, generate=True, dset=None):
+    def __init__(self, n_samples, n_nodes, n_timesteps, features, filename=None,
+                 force_new=False, discard=False, from_partial=False, normalize=False, generate=True, dset=None):
         """
         Generates the dataset with the given parameters, unless a similar dataset has been generated
             before, in which case it is by default loaded from the file.

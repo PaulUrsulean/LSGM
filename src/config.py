@@ -41,17 +41,19 @@ _default_config = dict(
         ),
         springs=dict(
             suffix='_springs5',
+            path="./datasets/springs",
             atoms=5,
             dims=4
         ),
         weather=dict(
-            atoms=3,
+            atoms=5,
             dims=2,
-            examples=10000,
-            timesteps=70,
+            path="./datasets/weather",
+            examples=40000,
+            timesteps=100,
             force_new=False,
             discard=False,
-            splits=[72, 14, 14]  # TODO Make configurable
+            splits=[80, 10, 10]  # TODO Make configurable
         )
     ),
 
