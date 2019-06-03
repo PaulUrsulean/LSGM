@@ -311,8 +311,8 @@ class Model:
                     else:
                         output = self.decoder(data, edges, self.rel_rec, self.rel_send, 100,
                                               burn_in=True, burn_in_steps=self.timesteps)
-                    output = output[:, :, self.timesteps:self.timesteps + 21, :]
-                    target = data[:, :, self.timesteps:self.timesteps + 21, :]
+                    output = output[:, :, self.timesteps + 1:self.timesteps + 20, :]
+                    target = data[:, :, self.timesteps + 1:self.timesteps + 20, :]
                     # TODO: In paper, why? Why second one negative
                     # output = output[:, :, args.timesteps:, :]
                     # target = data[:, :, -args.timesteps:, :]
