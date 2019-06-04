@@ -45,18 +45,21 @@ class WeatherDataset(Dataset):
         self.n_timesteps = n_timesteps
         self.features = features
         self.normalize=normalize
-        self.normalize_params = normalize_params
+        self.__normalize_params = normalize_params
                 
         if dset is None: 
             self.generate_dset(filename, dataset_path, force_new, discard, from_partial)
         else:
             self.dset=dset
-            
-        if self.normalize_params is None and self.normalize:
-            print("Setting default normalization params in __init__")
-            self.normalize_params = tuple((self.dset[:,:,:,feature].mean(), self.dset[:,:,:,feature].std()) for feature in range(dset[:].shape[-1]))
-            
+
         assert self.dset.shape == (self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)), "Dataset dimensions do not match specifications"
+            
+        if self.normalize:
+            if self.__normalize_params is None:
+                self.__normalize_params = tuple((self.dset[:,:,:,feature].mean(), self.dset[:,:,:,feature].std()) for feature in range(dset[:].shape[-1]))
+
+            self.__normalize_dataset()
+            
                 
     @classmethod
     def train_valid_test_split(cls, dset, spl=[80,10,10], normalize=False):
@@ -82,6 +85,7 @@ class WeatherDataset(Dataset):
         
         return (train_set, valid_set, test_set)
         
+
         
     def __len__(self):
         return len(self.dset)
@@ -90,26 +94,31 @@ class WeatherDataset(Dataset):
         """
         This function defines the indexing behavior of this dataset object. If normalization is not activated, it
             simply passes the given index onto the underlying numpy array. Otherwise, it performs normalization based
-            on self.normalize_params which is set in the constructor (and here again as a sanity check).
+            on self.__normalize_params which is set in the constructor (and here again as a sanity check).
         The normalization is performed at the level of the whole dataset, so that meaningful comparisons can be made
             between samples, as well as between different weather stations belonging to the same sample.
         Args:
             idx(index): The index for accessing the underlying dataset.
         """
+        if self.normalize and self.__normalize_params is None:
+            shape = self.dset.shape
+            self.__normalize_params = tuple((self.dset[:,:,:,feature].mean(), self.dset[:,:,:,feature].std()) for feature in range(shape[-1]))
+            self.__normalize_dataset()
+
+        return self.dset[idx]
         
-        if not self.normalize:
-            return self.dset[idx]
-        else:
-            shape = self.dset[:].shape
-            assert len(shape) == 4, "Dataset indexing error: Wrong underlying dataset shape"
+#         if not self.normalize:
+#         else:
+#             shape = self.dset.shape
+#             assert len(shape) == 4, "Dataset indexing error: Wrong underlying dataset shape"
             
-            if self.normalize_params is None:
-                print("Setting default normalization params in __getitem__")
-                self.normalize_params = tuple((self.dset[:,:,:,feature].mean(), self.dset[:,:,:,feature].std()) for feature in range(shape[-1]))
+#             if self.__normalize_params is None:
+#                 print("Setting default normalization params in __getitem__")
+#                 self.__normalize_params = tuple((self.dset[:,:,:,feature].mean(), self.dset[:,:,:,feature].std()) for feature in range(shape[-1]))
             
-            assert len(self.normalize_params) == len(self.features) and len(self.normalize_params[0]) == 2, "Normalize params incorrect format. Use ((feature1.mean, feature1.std),...,(feature_n.mean, feature_n.std))"
+#             assert len(self.__normalize_params) == len(self.features) and len(self.__normalize_params[0]) == 2, "Normalize params incorrect format. Use ((feature1.mean, feature1.std),...,(feature_n.mean, feature_n.std))"
                 
-            return np.apply_along_axis(lambda x: [(x[feat] - self.normalize_params[feat][0])/(self.normalize_params[feat][1] if self.normalize_params[feat][1] != 0 else 1) for feat in range(shape[-1])], -1, self.dset[:])[idx]
+#             return np.apply_along_axis(lambda x: [(x[feat] - self.__normalize_params[feat][0])/(self.__normalize_params[feat][1] if self.__normalize_params[feat][1] != 0 else 1) for feat in range(shape[-1])], -1, self.dset[:])[idx]
 
             
 #             if isinstance(idx, int) or isinstance(idx, slice):
@@ -127,7 +136,32 @@ class WeatherDataset(Dataset):
 #             return reshaped if isinstance(idx, int) or isinstance(idx, slice) else reshaped[idx[1:]]
     
     def get_normalize_params(self):
-        return self.normalize_params
+        return self.__normalize_params
+    
+    def __normalize_dataset(self):
+        """
+        Normalizes the dataset based on the mean and standard deviation for each feature in self.__normalize_params
+        """
+        
+        print(self.__normalize_params)
+        assert self.__normalize_params is not None and len(self.__normalize_params) == len(self.features) and len(self.__normalize_params[0]) == 2, "Normalize params incorrect format. Use ((feature1.mean, feature1.std),...,(feature_n.mean, feature_n.std))"
+        assert self.dset.shape == (self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)), "Dataset dimensions do not match specifications"
+        
+        for feature in range(self.dset.shape[-1]):
+            self.dset[:,:,:,feature] = (self.dset[:,:,:,feature] - self.__normalize_params[feature][0])/(self.__normalize_params[feature][1] if self.__normalize_params[feature][1] != 0 else 1)
+            
+    
+    def __denormalize_dataset(self):
+        """
+        Denormalizes the dataset based on the mean and standard deviation for each feature in self.__normalize_params
+        """
+        
+        assert self.__normalize_params is not None and len(self.__normalize_params) == len(self.features) and len(self.__normalize_params[0]) == 2, "Normalize params incorrect format. Use ((feature1.mean, feature1.std),...,(feature_n.mean, feature_n.std))"
+        assert self.dset.shape == (self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)), "Dataset dimensions do not match specifications"
+        
+        for feature in range(self.dset.shape[-1]):
+            self.dset[:,:,:,feature] = (self.dset[:,:,:,feature] * (self.__normalize_params[feature][1] if self.__normalize_params[feature][1] != 0 else 1)) + self.__normalize_params[feature][0]
+
     
     def generate_dset(self, filename, dataset_path, force_new, discard, from_partial):
         """
