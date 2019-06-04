@@ -13,8 +13,7 @@ class WeatherDataset(Dataset):
     """
     Wrapper class for the Spain weather dataset
     """
-    def __init__(self, n_samples, n_nodes, n_timesteps, features, filename=None,
-                 force_new=False, discard=False, from_partial=False, normalize=False, generate=True, dset=None):
+    def __init__(self, n_samples, n_nodes, n_timesteps, features, filename=None, dataset_path=None, force_new=False, discard=False, from_partial=False, normalize=False, normalize_params=None, dset=None):
         """
         Generates the dataset with the given parameters, unless a similar dataset has been generated
             before, in which case it is by default loaded from the file.
@@ -22,7 +21,7 @@ class WeatherDataset(Dataset):
             n_samples(int): Number of simulations to fetch
             n_nodes(int): Number of atoms in the simulation
             n_timesteps(int): Number of timesteps in each simulation
-            features(list(str)): The list of feature names to track at each time step
+            features(list[str]): The list of feature names to track at each time step
             filename(str): The name of the file to save to/load from. If the file already exists,
                 the data is loaded from it and checked whether it matches the required parameters,
                 unless the force_new parameter is set, in which case it is overwritten anyway. If
@@ -36,19 +35,26 @@ class WeatherDataset(Dataset):
                 and keep building on it until it reaches the specified n_samples. filename must be specified. force_new
                 obviously cancels this behavior.
             normalize(boolean, optional): Whether to center data at mean 0 and scale to stddev 1. Defaults true
-            generate(boolean,optional): Whether to read or generate a dataset at all. Used for alternative constructor.
-            dset(numpy.ndarray): If above generate is false, a foreign numpy array may be given as the dataset.
+            normalize_params(tuple[tuple[float]]): Means and standard deviations to center with, for each feature. 
+                Used to normalize the validation and test sets with the mean and std. of the training set.
+            dset(numpy.ndarray): If this value is not None, a foreign numpy array will be used as the dataset, without 
+                the need to generate/read
         """
         self.n_samples = n_samples
         self.n_nodes = n_nodes
         self.n_timesteps = n_timesteps
         self.features = features
         self.normalize=normalize
-        
-        if generate: 
-            self.generate_dset(filename, force_new, discard, from_partial)
+        self.normalize_params = normalize_params
+                
+        if dset is None: 
+            self.generate_dset(filename, dataset_path, force_new, discard, from_partial)
         else:
             self.dset=dset
+            
+        if self.normalize_params is None and self.normalize:
+            print("Setting default normalization params in __init__")
+            self.normalize_params = tuple((self.dset[:,:,:,feature].mean(), self.dset[:,:,:,feature].std()) for feature in range(dset[:].shape[-1]))
             
         assert self.dset.shape == (self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)), "Dataset dimensions do not match specifications"
                 
@@ -61,46 +67,75 @@ class WeatherDataset(Dataset):
             spl(list[int]): train/valid/test split, must add up to 100
         """
         assert len(spl) == 3 and sum(spl) == 100, "Invalid split given, the 3 values must sum to 100"
-        assert len(dset.shape) == 4, "Dimensionality of given dataset is incorrect"
-        n_samples, n_nodes, n_timesteps, n_features = dset.shape
+        assert len(dset[:].shape) == 4, "Dimensionality of given dataset is incorrect"
+        
+        n_samples, n_nodes, n_timesteps, n_features = dset[:].shape
         n_train = int(len(dset) * (spl[0] / 100))
         n_valid = int(len(dset) * (spl[1] / 100))
-        return (cls(n_train, n_nodes, n_timesteps, ['avg_temp','rainfall'], generate=False, dset=dset[:n_train], normalize=normalize),
-               cls(n_valid, n_nodes, n_timesteps, ['avg_temp','rainfall'], generate=False, dset=dset[n_train:n_train+n_valid], normalize=normalize),
-               cls(n_samples - (n_train + n_valid), n_nodes, n_timesteps, ['avg_temp','rainfall'], generate=False, dset=dset[n_train+n_valid:], normalize=normalize))
+        
+        train_set = cls(n_train, n_nodes, n_timesteps, ['avg_temp','rainfall'], dset=dset[:n_train], normalize=normalize)
+        normalize_params = train_set.get_normalize_params()
+        
+        valid_set = cls(n_valid, n_nodes, n_timesteps, ['avg_temp','rainfall'], dset=dset[n_train:n_train+n_valid], normalize=normalize, normalize_params=normalize_params)
+        
+        test_set = cls(n_samples - (n_train + n_valid), n_nodes, n_timesteps, ['avg_temp','rainfall'], dset=dset[n_train+n_valid:], normalize=normalize, normalize_params=normalize_params)
+        
+        return (train_set, valid_set, test_set)
         
         
     def __len__(self):
         return len(self.dset)
 
-    # The normalization works at the level of the sample, i.e. over all nodes and all time-steps
     def __getitem__(self, idx):
+        """
+        This function defines the indexing behavior of this dataset object. If normalization is not activated, it
+            simply passes the given index onto the underlying numpy array. Otherwise, it performs normalization based
+            on self.normalize_params which is set in the constructor (and here again as a sanity check).
+        The normalization is performed at the level of the whole dataset, so that meaningful comparisons can be made
+            between samples, as well as between different weather stations belonging to the same sample.
+        Args:
+            idx(index): The index for accessing the underlying dataset.
+        """
         
         if not self.normalize:
             return self.dset[idx]
-        
         else:
-            # Only works on selected samples in order to avoid inefficient computations
-            if isinstance(idx, int) or isinstance(idx, slice):
-                sample = self.dset[idx]
-            elif isinstance(idx, tuple):
-                sample = self.dset[idx[0]]
-            else:
-                print(idx)
-                assert False, "Multi-dimensional indexing is not supported in WeatherDataset with normalization"
+            shape = self.dset[:].shape
+            assert len(shape) == 4, "Dataset indexing error: Wrong underlying dataset shape"
+            
+            if self.normalize_params is None:
+                print("Setting default normalization params in __getitem__")
+                self.normalize_params = tuple((self.dset[:,:,:,feature].mean(), self.dset[:,:,:,feature].std()) for feature in range(shape[-1]))
+            
+            assert len(self.normalize_params) == len(self.features) and len(self.normalize_params[0]) == 2, "Normalize params incorrect format. Use ((feature1.mean, feature1.std),...,(feature_n.mean, feature_n.std))"
+                
+            return np.apply_along_axis(lambda x: [(x[feat] - self.normalize_params[feat][0])/(self.normalize_params[feat][1] if self.normalize_params[feat][1] != 0 else 1) for feat in range(shape[-1])], -1, self.dset[:])[idx]
 
-            reshaped = sample.reshape(sample.shape[:-3] + (sample.shape[-3]*sample.shape[-2], sample.shape[-1]))
-            reshaped = np.apply_along_axis(lambda x: (x-x.mean())/(x.std() if x.std() != 0 else 1), -2, reshaped).reshape(sample.shape)
+            
+#             if isinstance(idx, int) or isinstance(idx, slice):
+#                 sample = self.dset[idx]
+#             elif isinstance(idx, tuple):
+#                 sample = self.dset[idx[0]]
+#             else:
+#                 print(idx)
+#                 assert False, "Multi-dimensional indexing is not supported in WeatherDataset with normalization"
 
-            return reshaped if isinstance(idx, int) or isinstance(idx, slice) else reshaped[idx[1:]]
+#             reshaped = sample.reshape(sample.shape[:-3] + (sample.shape[-3]*sample.shape[-2], sample.shape[-1]))
+#             reshaped = np.apply_along_axis(lambda x: (x-x.mean())/(x.std() if x.std() != 0 else 1), -2, reshaped).reshape(sample.shape)
+
+
+#             return reshaped if isinstance(idx, int) or isinstance(idx, slice) else reshaped[idx[1:]]
     
-    def generate_dset(self, filename, force_new, discard, from_partial):
+    def get_normalize_params(self):
+        return self.normalize_params
+    
+    def generate_dset(self, filename, dataset_path, force_new, discard, from_partial):
         """
-        Actual meat and potatoes
+        Actual meat and potatoes of the data generation process, same params as constructor.
         """
         
         module_dir = dirname(os.path.abspath(__file__))
-        data_dir = join(dirname(dirname(module_dir)), "datasets", "weather")
+        data_dir = join(dirname(dirname(module_dir)), "datasets", "weather") if dataset_path is None else dataset_path
                 
         # .npy file name convention if filename is not given:
         # #samples_#nodes_#timesteps_#features_#filesOfSameCharacteristics.npy
@@ -335,7 +370,7 @@ class WeatherDataset(Dataset):
                     
                     cluster_df = cluster_df.head(samples_in_cluster * sample_df_size)
                     
-                    # Group by station id
+                    # Group by station id, fetch features
                     grouped = cluster_df.groupby('station_id')[features]
 
                     # Convert to numpy array with different groups in different dimensions                
@@ -373,7 +408,7 @@ class WeatherDataset(Dataset):
     def nested_list_member(self, nested_list, element):
         """
         Utility function used for checking membership of a sample in the nested list of configurations
-            used so far. Necessary because the standard Python formulation of (elem in list) fails in
+            used so far. Necessary because the standard Python formulation of (elem in list) fails in nested lists
         Args:
             nested_list(list(list)): List containing list or np.array
             element(list): Check whether this list element is contained in the list of lists.

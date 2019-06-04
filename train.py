@@ -42,7 +42,7 @@ def run_experiment(config):
                                          n_nodes=config['data']['weather']['atoms'],
                                          n_timesteps=config['data']['weather']['timesteps'],
                                          features=['avg_temp', 'rainfall'],  # TODO Configurable
-                                         filename=config['data']['weather']['path'],
+                                         dataset_path=config['data']['weather']['path'],
                                          force_new=config['data']['weather']['force_new'],
                                          discard=config['data']['weather']['discard'],
                                          train_valid_test_split=config['data']['weather']['splits'])
