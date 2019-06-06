@@ -112,6 +112,7 @@ def load_weather_data(batch_size, n_samples, n_nodes, n_timesteps, features, tra
             it, useful for debugging. Does not apply if filename is specified
         normalize(boolean, optional): Whether to center data at mean 0 and scale to stddev 1. Defaults true
     """
+    print(dataset_path)
     # Normalization is activated when calling WeatherDataset.train_valid_test_split
     dset = WeatherDataset(n_samples, n_nodes, n_timesteps, features, filename, dataset_path, force_new, discard)
     assert len(train_valid_test_split) == 3 and sum(
