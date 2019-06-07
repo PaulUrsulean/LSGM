@@ -1,5 +1,6 @@
 import argparse
 import logging
+from os.path import join
 
 import numpy as np
 import torch.nn
@@ -29,7 +30,7 @@ def run_experiment(config):
     if config['data']['name'] == 'springs':
         data_loaders = load_spring_data(batch_size=config['training']['batch_size'],
                                         suffix=config['data']['springs']['suffix'],
-                                        path=config['data']['springs']['path'])
+                                        path=join(config['data']['path'], "springs"))
     elif config['data']['name'] == 'random':
         data_loaders = load_random_data(batch_size=config['training']['batch_size'],
                                         n_atoms=config['data']['random']['atoms'],
@@ -41,8 +42,8 @@ def run_experiment(config):
                                          n_samples=config['data']['weather']['examples'],
                                          n_nodes=config['data']['weather']['atoms'],
                                          n_timesteps=config['data']['weather']['timesteps'],
-                                         features=['avg_temp', 'rainfall'],  # TODO Configurable
-                                         dataset_path=config['data']['weather']['path'],
+                                         features=['avg_temp', 'rainfall'],
+                                         dataset_path=join(config['data']['path'], "weather"),
                                          force_new=config['data']['weather']['force_new'],
                                          discard=config['data']['weather']['discard'],
                                          train_valid_test_split=config['data']['weather']['splits'])
@@ -105,7 +106,7 @@ def create_encoder(config):
 if __name__ == '__main__':
     args = argparse.ArgumentParser(description='TODO')
     args.add_argument('-c', '--config', default="config.json", type=str,
-                      help='config file path (default: None)')
+                      help='config file root_data_folder (default: None)')
     args.add_argument('-l', '--load-path', default=None, type=str,
                       help='path to latest checkpoint (default: None)')
 

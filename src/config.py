@@ -31,7 +31,7 @@ _default_config = dict(
     data=dict(
         timesteps=49,
         name='springs',
-        path='data',
+        path='/nfs/students/summer-term-2019/project-4/datasets',
         random=dict(
             atoms=4,
             dims=100,
@@ -40,14 +40,12 @@ _default_config = dict(
         ),
         springs=dict(
             suffix='_springs5',
-            path="./datasets/springs",
             atoms=5,
             dims=4
         ),
         weather=dict(
             atoms=5,
             dims=2,
-            path="./datasets/weather",
             examples=40000,
             timesteps=100,
             force_new=False,

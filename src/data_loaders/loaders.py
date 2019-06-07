@@ -121,7 +121,6 @@ def load_weather_data(batch_size, n_samples, n_nodes, n_timesteps, features, tra
     train_set, valid_set, test_set = WeatherDataset.train_valid_test_split(dset, train_valid_test_split, normalize=normalize)
     
     print("Split completed: {}, {}, {}".format(train_set[:].shape, valid_set[:].shape, test_set[:].shape))
-
     return dict(
         train_loader=DataLoader(train_set, batch_size=batch_size, shuffle=True),
         valid_loader=DataLoader(valid_set, batch_size=batch_size, shuffle=True),
