@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
+from torch.nn import DataParallel
 from torch.nn.utils import clip_grad_value_
 
 from src.logger import WriterTensorboardX, setup_logging
@@ -43,9 +44,18 @@ class Model:
                                                             step_size=self.scheduler_stepsize,
                                                             gamma=self.scheduler_gamma)
 
-        self.device = torch.device('cpu') if self.gpu_id is None else torch.device(f'cuda:{self.gpu_id}')
+        assert (torch.cuda.is_available() or self.gpu_id is None, "Cuda not available, running on GPU not possible.")
 
-        # Move models to gpu
+        if self.gpu_id == -1:
+            self.device = torch.device(f'cuda:0')
+
+            # Declare as parallel
+            encoder = DataParallel(encoder)
+            decoder = DataParallel(decoder)
+        else:
+            self.device = torch.device('cpu') if self.gpu_id is None else torch.device(f'cuda:{self.gpu_id}')
+
+        # Move models to specific device in any way
         self.encoder = encoder.to(self.device)
         self.decoder = decoder.to(self.device)
 
@@ -59,9 +69,8 @@ class Model:
         self.logger = logging.getLogger('trainer')
         self.writer = WriterTensorboardX(self.log_path, self.logger, True)
 
-        # Early stopping behaviour
-        assert (self.early_stopping_mode in ['min', 'max'])
-        self.mnt_best = inf if self.early_stopping_mode == 'min' else -inf
+        # Used for early stopping and model saving
+        self.best_validation_mse = inf
 
         # Parse Config and set model attributes
         self.rel_rec, self.rel_send = gen_fully_connected(self.n_atoms
@@ -86,7 +95,6 @@ class Model:
         self.random_seed = config['globals']['seed']
         self.logger_config_path = config['logging']['logger_config']
         self.clip_value = config['training']['grad_clip_value']
-        self.early_stopping_mode = config['training']['early_stopping_mode']
         self.use_early_stopping = config['training']['use_early_stopping']
         self.early_stopping_patience = config['training']['early_stopping_patience']
         self.early_stopping_metric = config['training']['early_stopping_metric']
@@ -114,7 +122,52 @@ class Model:
 
         self.log_step = config['logging']['log_step']
 
-    def save_dict(self, dict, name, save_dir):
+    def train(self):
+        self.encoder.train()
+        self.decoder.train()
+
+        logs = []
+
+        for epoch in range(0, self.epochs):
+            result = self.train_epoch(epoch)
+
+            log = self.format_results(epoch, result)
+            logs.append(log)
+
+            # print logged informations to the screen
+            for key, value in log.items():
+                self.logger.info('    {:15s}: {}'.format(str(key), value))
+
+            did_improve = log[self.early_stopping_metric] <= self.best_validation_mse
+
+            if did_improve:
+                self.best_validation_mse = log[self.early_stopping_metric]
+                not_improved_count = 0
+                if self.do_save_models:
+                    self.save_models(epoch)
+            else:
+                not_improved_count += 1
+
+            if self.use_early_stopping and not_improved_count > self.early_stopping_patience:
+                self.logger.info(f"Stopping training, validation performance "
+                                 f"did not improve for {not_improved_count} epochs.")
+                break
+
+        return logs
+
+    def format_results(self, epoch, result):
+        # save logged informations into log dict
+        log = {'epoch': epoch}
+        for key, value in result.items():
+            if key == 'metrics':
+                log.update({mtr.__name__: value[i] for i, mtr in enumerate(self.metrics)})
+            elif key == 'val_metrics':
+                log.update({'val_' + mtr.__name__: value[i] for i, mtr in enumerate(self.metrics)})
+            else:
+                log[key] = value
+        return log
+
+    def save_dict(self, dict, name, save_dir):  # TODO: Move away
         # Save config to file
         with open(save_dir / name, 'w') as f:
             json.dump(dict, f, indent=4)
@@ -141,13 +194,13 @@ class Model:
         return acc_metrics
 
     def save_models(self, epoch):
-        encoder_path = self.models_log_path / f'encoder_epoch{epoch}.pt'
+        encoder_path = self.models_log_path / f'encoder_epoch{epoch}.pt'  # TODO: Overwrite current one
         decoder_path = self.models_log_path / f'decoder_epoch{epoch}.pt'
 
         torch.save(self.encoder.state_dict(), encoder_path)
         torch.save(self.decoder.state_dict(), decoder_path)
 
-    def _train_epoch(self, epoch):
+    def train_epoch(self, epoch):
         """
         Metrics part partly taken from https://github.com/victoresque/pytorch-template/blob/master/trainer/trainer.py
         :param epoch:
@@ -400,67 +453,3 @@ class Model:
             'val_loss': total_loss / len(self.valid_loader),
             'val_metrics': (total_val_metrics / len(self.valid_loader)).tolist()
         }
-
-    def train(self):
-        """
-        Full training logic
-        (Taken from https://github.com/victoresque/pytorch-template and modified)
-        """
-        self.encoder.train()
-        self.decoder.train()
-
-        logs = []
-
-        for epoch in range(0, self.epochs):
-            result = self._train_epoch(epoch)
-
-            # save logged informations into log dict
-            log = {'epoch': epoch}
-            for key, value in result.items():
-                if key == 'metrics':
-                    log.update({mtr.__name__: value[i] for i, mtr in enumerate(self.metrics)})
-                elif key == 'val_metrics':
-                    log.update({'val_' + mtr.__name__: value[i] for i, mtr in enumerate(self.metrics)})
-                else:
-                    log[key] = value
-
-            # print logged informations to the screen
-            for key, value in log.items():
-                self.logger.info('    {:15s}: {}'.format(str(key), value))
-
-            logs.append(log)
-
-            # evaluate model performance according to configured metric, save best checkpoint as model_best
-            best = False
-            if self.use_early_stopping:
-                try:
-                    # check whether model performance improved or not, according to specified metric(mnt_metric)
-                    improved = (self.early_stopping_mode == 'min' and log[
-                        self.early_stopping_metric] <= self.mnt_best) or \
-                               (self.early_stopping_mode == 'max' and log[
-                                   self.early_stopping_metric] >= self.mnt_best)
-                except KeyError:
-                    self.logger.warning("Warning: Metric '{}' is not found. "
-                                        "Model performance monitoring is disabled.".format(
-                        self.early_stopping_metric))
-                    self.use_early_stopping = False
-                    improved = False
-                    not_improved_count = 0
-
-                if improved:
-                    self.mnt_best = log[self.early_stopping_metric]
-                    not_improved_count = 0
-                    best = True
-                    if self.do_save_models:
-                        self.save_models(epoch)
-                else:
-                    not_improved_count += 1
-
-                if not_improved_count > self.early_stopping_patience:
-                    self.logger.info("Validation performance didn\'t improve for {} epochs. "
-                                     "Training stops.".format(not_improved_count))
-                    break
-            else:
-                if self.do_save_models and epoch % self.log_step == 0:
-                    self.save_models(epoch)
-        return logs

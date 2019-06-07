@@ -10,7 +10,6 @@ _default_config = dict(
     training=dict(
         gpu_id=None,
         use_early_stopping=True,
-        early_stopping_mode='min',  # in ["min", "max"]
         early_stopping_metric='val_mse_loss',
         early_stopping_patience=50,
         epochs=500,
