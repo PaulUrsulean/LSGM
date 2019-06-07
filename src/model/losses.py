@@ -1,5 +1,6 @@
-import torch
 import numpy as np
+import torch
+from torch import Tensor, log
 
 
 def vae_loss(predictions,
@@ -33,24 +34,25 @@ def vae_loss(predictions,
     if log_prior is None:
         kl_div = kl_categorical_uniform(edge_probs, n_atoms, n_edge_types, add_const=add_const, eps=eps)
     else:
-        log_prior = torch.Tensor(log_prior).to(device or torch.device('cpu'))
+        log_prior = Tensor(log_prior).to(device or torch.device('cpu'))
         kl_div = kl_categorical(edge_probs, log_prior, n_atoms, eps=eps)
     return nll + beta * kl_div, nll, kl_div
 
 
-"""
-Calculations below taken from https://github.com/ethanfetaya/NRI/blob/master/utils.py with adaptions
-"""
-
-
-def kl_categorical(preds, log_prior, num_atoms, eps=1e-16):
-    kl_div = preds * (torch.log(preds + eps) - log_prior)
+def kl_categorical(preds,
+                   log_prior,
+                   num_atoms,
+                   eps=1e-16):
+    kl_div = preds * (log(preds + eps) - log_prior)
     return kl_div.sum() / (num_atoms * preds.size(0))
 
 
-def kl_categorical_uniform(preds, num_atoms, num_edge_types, add_const=False,
+def kl_categorical_uniform(preds,
+                           num_atoms,
+                           num_edge_types,
+                           add_const=False,
                            eps=1e-16):
-    kl_div = preds * torch.log(preds + eps)
+    kl_div = preds * log(preds + eps)
     if add_const:
         const = np.log(num_edge_types)
         kl_div += const
