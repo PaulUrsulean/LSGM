@@ -1,9 +1,9 @@
 import unittest
+
 import torch
 
 from src.model import modules
 from src.model import utils as go
-from src.model.utils import encode_onehot
 
 
 class MLPModuleTests(unittest.TestCase):
@@ -81,7 +81,7 @@ class CNNEncoderTests(unittest.TestCase):
     def __init__(self, arg):
         super(CNNEncoderTests, self).__init__(arg)
 
-        self.N_STEPS = 14 # Less than 14 does not work do tue convolution operations without padding looses dimensions
+        self.N_STEPS = 14  # Less than 14 does not work do tue convolution operations without padding looses dimensions
         self.N_OBJ = 3
         self.N_FEAT = 7
         self.N_EDGE_TYPES = 4

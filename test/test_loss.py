@@ -1,9 +1,10 @@
 import unittest
 
-import torch
 import numpy as np
-import src.model.losses as losses
+import torch
 from torch import Tensor
+
+import src.model.losses as losses
 
 
 class TestLoss(unittest.TestCase):
@@ -20,12 +21,12 @@ class TestLoss(unittest.TestCase):
 
     def test_loss_uniform_prior(self):
         loss, nll, kl = losses.vae_loss(predictions=self.predictions,
-                               targets=self.targets,
-                               edge_probs=self.edge_probs,
-                               n_atoms=self.n_atoms,
-                               n_edge_types=self.n_edge_types,
-                               prediction_variance=self.prediction_variance,
-                               log_prior=None)
+                                        targets=self.targets,
+                                        edge_probs=self.edge_probs,
+                                        n_atoms=self.n_atoms,
+                                        n_edge_types=self.n_edge_types,
+                                        prediction_variance=self.prediction_variance,
+                                        log_prior=None)
 
         correct_loss = losses.nll_gaussian(self.predictions, self.targets, self.prediction_variance) \
                        + losses.kl_categorical_uniform(self.edge_probs, self.n_atoms, self.n_edge_types)
@@ -34,15 +35,15 @@ class TestLoss(unittest.TestCase):
     def test_loss_manual_prior(self):
         prior = np.log([.4, .6])
         loss, nll, kl = losses.vae_loss(predictions=self.predictions,
-                               targets=self.targets,
-                               edge_probs=self.edge_probs,
-                               n_atoms=self.n_atoms,
-                               n_edge_types=self.n_edge_types,
-                               prediction_variance=self.prediction_variance,
-                               log_prior=prior)
+                                        targets=self.targets,
+                                        edge_probs=self.edge_probs,
+                                        n_atoms=self.n_atoms,
+                                        n_edge_types=self.n_edge_types,
+                                        prediction_variance=self.prediction_variance,
+                                        log_prior=prior)
 
         correct_loss = losses.nll_gaussian(self.predictions, self.targets, self.prediction_variance) \
-                       + losses.kl_categorical(self.edge_probs, log_prior=Tensor(prior), num_atoms=self.n_atoms)
+                       + losses.kl_categorical(self.edge_probs, log_prior=torch.Tensor(prior), num_atoms=self.n_atoms)
         self.assertEqual(loss, correct_loss)
 
 

@@ -25,8 +25,8 @@ SOFTWARE.
 import logging
 import logging.config
 import os
-import time
 from pathlib import Path
+
 from src.logger.utils import read_json
 
 
