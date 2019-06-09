@@ -118,7 +118,7 @@ def load_weather_data(batch_size, n_samples, n_nodes, n_timesteps, features, tra
         train_valid_test_split) == 100, "Invalid split given, the 3 values must sum to 100"
 
     # Makes actual WeatherDataset objects instead of just putting numpy arrays in the loader
-    train_set, valid_set, test_set = WeatherDataset.train_valid_test_split(dset, train_valid_test_split, normalize=normalize)
+    train_set, valid_set, test_set = WeatherDataset.train_valid_test_split(dset, features, train_valid_test_split, normalize=normalize)
     
     print("Split completed: {}, {}, {}".format(train_set[:].shape, valid_set[:].shape, test_set[:].shape))
     return dict(

@@ -214,7 +214,7 @@ class WeatherDataset(Dataset):
 
                 
     @classmethod
-    def train_valid_test_split(cls, dset, spl=[80,10,10], normalize=False):
+    def train_valid_test_split(cls, dset, features, spl=[80,10,10], normalize=False):
         """
         Gives 3 different dataset objects, for train/valid/test DataLoaders
         Args:
@@ -228,12 +228,12 @@ class WeatherDataset(Dataset):
         n_train = int(len(dset) * (spl[0] / 100))
         n_valid = int(len(dset) * (spl[1] / 100))
         
-        train_set = cls(n_train, n_nodes, n_timesteps, ['avg_temp','rainfall'], dset=dset[:n_train], normalize=normalize)
+        train_set = cls(n_train, n_nodes, n_timesteps, features, dset=dset[:n_train], normalize=normalize)
         normalize_params = train_set.get_normalize_params()
         
-        valid_set = cls(n_valid, n_nodes, n_timesteps, ['avg_temp','rainfall'], dset=dset[n_train:n_train+n_valid], normalize=normalize, normalize_params=normalize_params)
+        valid_set = cls(n_valid, n_nodes, n_timesteps, features, dset=dset[n_train:n_train+n_valid], normalize=normalize, normalize_params=normalize_params)
         
-        test_set = cls(n_samples - (n_train + n_valid), n_nodes, n_timesteps, ['avg_temp','rainfall'], dset=dset[n_train+n_valid:], normalize=normalize, normalize_params=normalize_params)
+        test_set = cls(n_samples - (n_train + n_valid), n_nodes, n_timesteps, features, dset=dset[n_train+n_valid:], normalize=normalize, normalize_params=normalize_params)
         
         return (train_set, valid_set, test_set)
 
@@ -286,7 +286,7 @@ class WeatherDataset(Dataset):
         WeatherDataset.remove_deep(df, dates_removal)
 
     @staticmethod
-    def get_configuration(df, conf):
+    def get_configuration(df, conf, features):
         """
         Fetches a subset of the original dataset, which only contains the given configuration
             of weather stations, for which the entries that are removed are only those which
@@ -295,20 +295,26 @@ class WeatherDataset(Dataset):
             df (pandas DataFrame): The source DataFrame that contains all of the (dirty) data
             conf(list(str)): The list weather station IDs which constitute the configuration.
         """
-        # Get timesteps for rows matching configuration, remove null values
-        df_conf = df[df['station_id'].isin(conf)].reset_index(drop=True)
-        missing_rows = df_conf[df_conf['avg_temp'].isna() | df_conf['rainfall'].isna()]
+        
+        
+        # Get timesteps for rows matching configuration
+        df_conf = df[df['station_id'].isin(conf)].reset_index(drop=True).sort_values(by='date')
+
+        # Remove non-numerical values, turning them into NaNs
+        for feature in features:
+            df_conf[feature] = pd.to_numeric(df_conf[feature], errors='coerce')
+            
+        # Interpolate missing values as much as possible to avoid removing too many time steps
+        df_conf[features] = df_conf.groupby('station_id')[features].apply(
+            lambda group: group.interpolate(axis=0, method='polynomial', order=2, limit=4)
+        )
+        
+        # Sort out NaNs
+        missing_rows = df_conf[df_conf[features].isna().any(axis=1)]
         WeatherDataset.remove_deep(df_conf, missing_rows)
 
-
-        # Remove non-numerical values
-        null_vals = (pd.to_numeric(df_conf['rainfall'], errors='coerce').isnull())
-        null_indices = null_vals[null_vals==True].index
-        WeatherDataset.remove_deep(df_conf, df_conf.loc[null_indices])
-
-
         # Remove timesteps for which not all stations have data
-        WeatherDataset.align_dates(df_conf, ['avg_temp','rainfall'], len(conf))
+        WeatherDataset.align_dates(df_conf, features, len(conf))
 
         return df_conf
 
@@ -352,13 +358,13 @@ class WeatherDataset(Dataset):
 
             configurations.append(sample)
 
-            df_conf = WeatherDataset.get_configuration(df, sample)
+            df_conf = WeatherDataset.get_configuration(df, sample, features)
                         
             # If all stations made it through the deletion process, and there are enough time steps for >=1 sample
             if len(df_conf['station_id'].unique()) == n_nodes and len(df_conf) >= sample_df_size:
                 
                 # Sort values by date
-                df_conf = df_conf.sort_values(by='date')
+                df_conf = df_conf.sort_values(by='date').reset_index(drop=True)
                 
                 # Turn datetime objects into ordinal values in order to easily find consecutive clusters
                 ordinal_dates = df_conf['date'].apply(pd.datetime.toordinal)
