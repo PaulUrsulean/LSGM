@@ -48,6 +48,7 @@ _default_config = dict(
             dims=2,
             examples=40000,
             timesteps=100,
+            suffix="",
             force_new=False,
             discard=False,
             splits=[80, 10, 10]  # TODO Make configurable
