@@ -120,8 +120,10 @@ class WeatherDataset(Dataset):
         """
         return [self.configurations[ix] for ix in self.config_indices]
             
-            
     def get_normalize_params(self):
+        """
+        Returns normalization mean and standard deviation for each feature.
+        """
         return self.__normalize_params
     
     def __normalize_dataset(self):
@@ -136,13 +138,14 @@ class WeatherDataset(Dataset):
         assert self.dset.shape == (
             self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)
         ), "Dataset dimensions do not match specifications"
-        
+                
         for feature in range(self.dset.shape[-1]):
             self.dset[:,:,:,feature] = (
                 self.dset[:,:,:,feature] - self.__normalize_params[feature][0]
             ) / (self.__normalize_params[feature][1] if self.__normalize_params[feature][1] != 0 else 1)
             
-    
+        self.normalize=True
+
     def __denormalize_dataset(self):
         """
         Denormalizes the dataset based on the mean and standard deviation for each feature in self.__normalize_params
@@ -162,6 +165,8 @@ class WeatherDataset(Dataset):
                     self.__normalize_params[feature][1] if self.__normalize_params[feature][1] != 0 else 1
                 )
             ) + self.__normalize_params[feature][0]
+            
+        self.normalize=False
 
 
     def generate_dset(self, filename, dataset_path, force_new, discard, from_partial, threshold):
@@ -258,11 +263,23 @@ class WeatherDataset(Dataset):
             
             if not discard:
                 np.save(self.save_file_name, (self.dset, self.configurations, self.config_indices))
-
-
-                
+        
+    
+    def export(self):
+        assert self.dset.shape == (
+            self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)
+        ), "Dataset dimensions do not match specifications"
+        
+        assert self.configurations is not None \
+            and self.config_indices is not None \
+            and len(self.config_indices) == len(self.dset) \
+            and len(self.configurations) > 0, \
+            "Dataset object parameters configurations and config_indices invalid"
+        
+        return self.dset, self.__normalize_params if self.normalize else None, self.configurations, self.config_indices
+    
     @classmethod
-    def train_valid_test_split(cls, dset, features, spl=[80,10,10], normalize=False):
+    def train_valid_test_split(cls, dset, features, spl=[80,10,10], normalize=False, export=False):
         """
         Gives 3 different dataset objects, for train/valid/test DataLoaders
         Args:
@@ -310,7 +327,29 @@ class WeatherDataset(Dataset):
         
         test_set = cls(n_samples - (n_train + n_valid), n_nodes, n_timesteps, features, dset=dset[n_train+n_valid:], existing_config=dset.configurations[reverse_cutoff_test_index:], existing_indices=test_config_indices, normalize=normalize, normalize_params=normalize_params)
         
-        return (train_set, valid_set, test_set)
+        if not export:
+            return (train_set, valid_set, test_set)
+        
+        else:    
+            train_set, train_norm_params, train_configurations, train_config_indices = train_set.export()
+            valid_set, valid_norm_params, valid_configurations, valid_config_indices = valid_set.export()
+            test_set, test_norm_params, test_configurations, test_config_indices = test_set.export()
+
+            return dict(
+                normalize_params=train_norm_params,
+                
+                train_set = train_set,
+                train_configurations = train_configurations,
+                train_config_indices = train_config_indices,
+                                
+                valid_set = valid_set,
+                valid_configurations = valid_configurations,
+                valid_config_indices = valid_config_indices,
+
+                test_set = test_set,
+                test_configurations = test_configurations,
+                test_config_indices = test_config_indices
+            )
 
     
     @staticmethod
