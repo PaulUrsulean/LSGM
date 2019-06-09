@@ -13,7 +13,7 @@ class WeatherDataset(Dataset):
     """
     Wrapper class for the Spain weather dataset
     """
-    def __init__(self, n_samples, n_nodes, n_timesteps, features, filename=None, dataset_path=None, force_new=False, discard=False, from_partial=False, normalize=False, normalize_params=None, dset=None, threshold=3):
+    def __init__(self, n_samples, n_nodes, n_timesteps, features, filename=None, dataset_path=None, force_new=False, discard=False, from_partial=False, normalize=False, normalize_params=None, dset=None, existing_config=None, existing_indices=None, threshold=1):
         """
         Generates the dataset with the given parameters, unless a similar dataset has been generated
             before, in which case it is by default loaded from the file.
@@ -39,6 +39,9 @@ class WeatherDataset(Dataset):
                 Used to normalize the validation and test sets with the mean and std. of the training set.
             dset(numpy.ndarray): If this value is not None, a foreign numpy array will be used as the dataset, without 
                 the need to generate/read
+            existing_config(list[list(str)]): List of unique configs tried, in order.
+            existing_indices(list[int]): List of integers indexing into existing_config, with their indices corresponding
+                to the sample they belong to.
             threshold(int): The maximum number of missing days in consecutive time steps. If missing > threshold, then
                 split into different clusters
         """
@@ -53,6 +56,16 @@ class WeatherDataset(Dataset):
             self.generate_dset(filename, dataset_path, force_new, discard, from_partial, threshold)
         else:
             self.dset=dset
+            self.configurations=existing_config
+            self.config_indices = existing_indices
+            
+            print(len(self.configurations), len(self.config_indices), len(self.dset))
+            
+            assert self.configurations is not None \
+                and self.config_indices is not None \
+                and len(self.config_indices) == len(self.dset) \
+                and len(self.configurations) > 0, \
+                "Incorrect custom dset, configurations/indices values given to constructor"
 
         assert self.dset.shape == (self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)), "Dataset dimensions do not match specifications"
             
@@ -60,7 +73,6 @@ class WeatherDataset(Dataset):
             if self.__normalize_params is None:
                 self.__normalize_params = tuple((self.dset[:,:,:,feature].mean(),
                                                  self.dset[:,:,:,feature].std()) for feature in range(dset[:].shape[-1]))
-
             self.__normalize_dataset()
 
         
@@ -83,8 +95,32 @@ class WeatherDataset(Dataset):
             self.__normalize_dataset()
 
         return self.dset[idx]
-
     
+    def get_sample_config(self, idx):
+        """
+        Returns the generating configuration of the sample corresponding to the index given as a parameter.
+        Args:
+            idx(index): The index for accessing the underlying configuration information.
+        """
+        if isinstance(idx, int) or isinstance(idx, splice):
+            return self.configurations[self.config_indices[idx]] 
+        else:
+            assert False, "Samples can only be indexed by integers or single splices"
+            
+    def get_config_list(self):
+        """
+        Returns the set of unique sample indices used to generate this dataset.
+        """
+        return self.configurations
+        
+    def get_complete_config_list(self):
+        """
+        Returns the entire list of configurations, corresponding to sample indices.
+            There will be many repetitions.
+        """
+        return [self.configurations[ix] for ix in self.config_indices]
+            
+            
     def get_normalize_params(self):
         return self.__normalize_params
     
@@ -174,7 +210,14 @@ class WeatherDataset(Dataset):
 
         # Whether to create a new file or use an existing one, if available
         if already_exists and not force_new and not from_partial:
-            self.dset = np.load(fpath, allow_pickle=True)[:self.n_samples]
+            self.dset, self.configurations, self.config_indices = np.load(fpath, allow_pickle=True)
+            if self.n_samples < len(self.dset):
+                self.dset = self.dset[:self.n_samples]
+                self.config_indices = self.config_indices[:self.n_samples]
+                self.configurations = self.configurations[:np.where(
+                    (np.array(self.configurations)==self.configurations[self.config_indices[-1]]).all(axis=1)
+                )[0][0] + 1]
+            
             assert self.dset.shape == (self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)), "Given file name contains dataset of a different shape than specified in parameters."
         
         else:
@@ -187,15 +230,21 @@ class WeatherDataset(Dataset):
             if 'date' not in data.columns:
                 data['date'] = pd.to_datetime(data[['year','month','day']])
 
-            existing_config = []
+            existing_dset, existing_config, existing_indices = [], [], []
 
-            
             if from_partial:
-                assert filename is not None and already_exists and "_partial" in filename, "Partial file not given or not found"
-                self.dset, existing_config = np.load(fpath, allow_pickle=True)
-                assert len(self.dset) < self.n_samples,"n_samples given is smaller than #samples in file, no need for partial"
-                assert self.dset.shape[1] == self.n_nodes and self.dset.shape[2] == self.n_timesteps and self.dset.shape[3] == len(self.features), "Incorrect shape for partial file"
-                print("Progress recovered from partial file, {} samples".format(len(self.dset)))
+                assert filename is not None and already_exists, "Partial file not given or not found"
+                existing_dset, existing_config, existing_indices = np.load(fpath, allow_pickle=True)
+                
+                assert len(existing_dset) < self.n_samples, \
+                    "n_samples given is smaller than #samples in file, no need for partial"
+                
+                assert existing_dset.shape[1] == self.n_nodes \
+                    and existing_dset.shape[2] == self.n_timesteps \
+                    and existing_dset.shape[3] == len(self.features), \
+                    "Incorrect shape for partial file"
+                
+                print("Progress recovered from partial file, {} samples".format(len(existing_dset)))
 
             self.save_file_name = join(data_dir, clean_fname) if filename is not None else join(data_dir,
                                                                                         str(self.n_samples) + "_"
@@ -203,14 +252,13 @@ class WeatherDataset(Dataset):
                                                                                         + str(self.n_timesteps) + "_"
                                                                                         + str(len(self.features)) + "_"
                                                                                         + str(highest_index+1))
-
-
             partial_save_freq = 0 if discard else 1000
 
-            self.dset, _ = self.sample_configurations(data, self.n_samples, self.n_nodes, self.n_timesteps, self.features, threshold, existing_config = existing_config, partial_save_freq=partial_save_freq)
+            self.dset, self.configurations, self.config_indices = self.sample_configurations(data, self.n_samples, self.n_nodes, self.n_timesteps, self.features, threshold, existing_dset, existing_config, existing_indices, partial_save_freq=partial_save_freq)
             
             if not discard:
-                np.save(self.save_file_name, self.dset)
+                np.save(self.save_file_name, (self.dset, self.configurations, self.config_indices))
+
 
                 
     @classmethod
@@ -228,12 +276,39 @@ class WeatherDataset(Dataset):
         n_train = int(len(dset) * (spl[0] / 100))
         n_valid = int(len(dset) * (spl[1] / 100))
         
-        train_set = cls(n_train, n_nodes, n_timesteps, features, dset=dset[:n_train], normalize=normalize)
+        # Training set generation
+        train_dset = dset[:n_train]
+        train_config_indices = dset.config_indices[:n_train]
+        cutoff_train_index = np.where(
+                    (np.array(dset.configurations)==dset.configurations[train_config_indices[-1]]).all(axis=1)
+                )[0][0] + 1
+        train_configurations = dset.configurations[:cutoff_train_index]
+        
+        train_set = cls(n_train, n_nodes, n_timesteps, features, dset=train_dset, existing_config=train_configurations, existing_indices=train_config_indices, normalize=normalize)
         normalize_params = train_set.get_normalize_params()
         
-        valid_set = cls(n_valid, n_nodes, n_timesteps, features, dset=dset[n_train:n_train+n_valid], normalize=normalize, normalize_params=normalize_params)
+        # Validation set generation
+        valid_dset = dset[n_train: n_train + n_valid]
+        valid_config_indices = dset.config_indices[n_train: n_train + n_valid]
+        cutoff_valid_index = np.where(
+                    (np.array(dset.configurations)==dset.configurations[valid_config_indices[-1]]).all(axis=1)
+                )[0][0] + 1
         
-        test_set = cls(n_samples - (n_train + n_valid), n_nodes, n_timesteps, features, dset=dset[n_train+n_valid:], normalize=normalize, normalize_params=normalize_params)
+        if cutoff_valid_index == cutoff_train_index:
+            valid_configurations = dset.configurations[cutoff_train_index-1:cutoff_train_index]
+        else:
+            valid_configurations = dset.configurations[cutoff_train_index:cutoff_valid_index]
+        
+        valid_set = cls(n_valid, n_nodes, n_timesteps, features, dset=dset[n_train:n_train+n_valid], existing_config=valid_configurations, existing_indices=valid_config_indices, normalize=normalize, normalize_params=normalize_params)
+
+        
+        # Test set generation
+        test_config_indices = dset.config_indices[n_train + n_valid:]
+        reverse_cutoff_test_index = np.where(
+                    (np.array(dset.configurations)==dset.configurations[test_config_indices[0]]).all(axis=1)
+                )[0][0]
+        
+        test_set = cls(n_samples - (n_train + n_valid), n_nodes, n_timesteps, features, dset=dset[n_train+n_valid:], existing_config=dset.configurations[reverse_cutoff_test_index:], existing_indices=test_config_indices, normalize=normalize, normalize_params=normalize_params)
         
         return (train_set, valid_set, test_set)
 
@@ -318,7 +393,7 @@ class WeatherDataset(Dataset):
 
         return df_conf
 
-    def sample_configurations(self, df, n_samples, n_nodes, n_timesteps, features, threshold, existing_config = [], partial_save_freq = 1000):
+    def sample_configurations(self, df, n_samples, n_nodes, n_timesteps, features, threshold, existing_dset=[], existing_config = [], existing_indices=[], partial_save_freq = 1000):
         """
         Samples different combinations of weather stations from the pool of candidates, and selectively
             applies the propagated deletion operations specified above for each sample, so as to get all
@@ -337,17 +412,20 @@ class WeatherDataset(Dataset):
 
         # The combinations of stations that we choose to go with
         configurations = existing_config
+        config_indices = existing_indices
 
         sample_df_size = n_timesteps * n_nodes
 
-        partial_save_thresh = 0 if configurations == [] else len(self.dset) - (len(self.dset)%partial_save_freq)
+        partial_save_thresh = 0 if existing_dset == [] else len(existing_dset) - (len(existing_dset)%partial_save_freq)
         partial_save_thresh += partial_save_freq
 
         # The number of 'simulations' generated so far
-        current_samples = 0 if configurations == [] else len(self.dset)
+        current_samples = 0 if existing_dset == [] else len(existing_dset)
 
         # Numpy format dataset
-        dataset = np.empty((0, n_nodes, n_timesteps, len(features))) if configurations == [] else self.dset
+        dataset = np.empty((0, n_nodes, n_timesteps, len(features))) if existing_dset == [] else existing_dset
+        
+        assert len(config_indices) == len(dataset), "Mismatch between dataset and config_indices array"
 
         while current_samples < n_samples:
             sample = np.random.choice(candidates, size=n_nodes, replace=False)
@@ -414,6 +492,9 @@ class WeatherDataset(Dataset):
 
                     # Append to dataset array
                     dataset = np.append(dataset, groups_np, axis=0)
+                    
+                    # Append to config indices array
+                    config_indices += [len(configurations) - 1] * samples_to_use
 
                     if current_samples == n_samples:
                         break
@@ -421,12 +502,12 @@ class WeatherDataset(Dataset):
                     # Increase threshold by the frequency when it is passed to simulate modulo behavior for nonconsecutive values
                     if current_samples >= partial_save_thresh and partial_save_freq != 0:
                         partial_save_thresh += partial_save_freq
-                        np.save(self.save_file_name + "_partial", (dataset, configurations))
+                        np.save(self.save_file_name + "_partial", (dataset, configurations, config_indices))
                         print("{} samples progress saved in partial file {}".format(len(dataset), self.save_file_name + "_partial.npy"))
 
                 print("Progress: {}/{}".format(current_samples, n_samples))
         
-        return dataset, configurations
+        return dataset, configurations, config_indices
 
     @staticmethod
     def nested_list_member(nested_list, element):
