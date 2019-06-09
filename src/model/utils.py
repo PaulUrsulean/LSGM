@@ -162,15 +162,6 @@ def load_weights(model, path):
     model.load_state_dict(torch.load(path))
 
 
-def get_offdiag_indices(num_nodes):
-    """Linear off-diagonal indices."""
-    ones = torch.ones(num_nodes, num_nodes)
-    eye = torch.eye(num_nodes, num_nodes)
-    offdiag_indices = (ones - eye).nonzero().t()
-    offdiag_indices = offdiag_indices[0] * num_nodes + offdiag_indices[1]
-    return offdiag_indices
-
-
 def nll():
     pass
 
