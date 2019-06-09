@@ -13,7 +13,7 @@ class WeatherDataset(Dataset):
     """
     Wrapper class for the Spain weather dataset
     """
-    def __init__(self, n_samples, n_nodes, n_timesteps, features, filename=None, dataset_path=None, force_new=False, discard=False, from_partial=False, normalize=False, normalize_params=None, dset=None):
+    def __init__(self, n_samples, n_nodes, n_timesteps, features, filename=None, dataset_path=None, force_new=False, discard=False, from_partial=False, normalize=False, normalize_params=None, dset=None, existing_config=None, existing_indices=None, threshold=1):
         """
         Generates the dataset with the given parameters, unless a similar dataset has been generated
             before, in which case it is by default loaded from the file.
@@ -39,6 +39,11 @@ class WeatherDataset(Dataset):
                 Used to normalize the validation and test sets with the mean and std. of the training set.
             dset(numpy.ndarray): If this value is not None, a foreign numpy array will be used as the dataset, without 
                 the need to generate/read
+            existing_config(list[list(str)]): List of unique configs tried, in order.
+            existing_indices(list[int]): List of integers indexing into existing_config, with their indices corresponding
+                to the sample they belong to.
+            threshold(int): The maximum number of missing days in consecutive time steps. If missing > threshold, then
+                split into different clusters
         """
         self.n_samples = n_samples
         self.n_nodes = n_nodes
@@ -48,43 +53,27 @@ class WeatherDataset(Dataset):
         self.__normalize_params = normalize_params
                 
         if dset is None: 
-            self.generate_dset(filename, dataset_path, force_new, discard, from_partial)
+            self.generate_dset(filename, dataset_path, force_new, discard, from_partial, threshold)
         else:
             self.dset=dset
+            self.configurations=existing_config
+            self.config_indices = existing_indices
+            
+            print(len(self.configurations), len(self.config_indices), len(self.dset))
+            
+            assert self.configurations is not None \
+                and self.config_indices is not None \
+                and len(self.config_indices) == len(self.dset) \
+                and len(self.configurations) > 0, \
+                "Incorrect custom dset, configurations/indices values given to constructor"
 
         assert self.dset.shape == (self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)), "Dataset dimensions do not match specifications"
             
         if self.normalize:
             if self.__normalize_params is None:
-                self.__normalize_params = tuple((self.dset[:,:,:,feature].mean(), self.dset[:,:,:,feature].std()) for feature in range(dset[:].shape[-1]))
-
+                self.__normalize_params = tuple((self.dset[:,:,:,feature].mean(),
+                                                 self.dset[:,:,:,feature].std()) for feature in range(dset[:].shape[-1]))
             self.__normalize_dataset()
-            
-                
-    @classmethod
-    def train_valid_test_split(cls, dset, spl=[80,10,10], normalize=False):
-        """
-        Gives 3 different dataset objects, for train/valid/test DataLoaders
-        Args:
-            dset(WeatherDataset): original dataset object
-            spl(list[int]): train/valid/test split, must add up to 100
-        """
-        assert len(spl) == 3 and sum(spl) == 100, "Invalid split given, the 3 values must sum to 100"
-        assert len(dset[:].shape) == 4, "Dimensionality of given dataset is incorrect"
-        
-        n_samples, n_nodes, n_timesteps, n_features = dset[:].shape
-        n_train = int(len(dset) * (spl[0] / 100))
-        n_valid = int(len(dset) * (spl[1] / 100))
-        
-        train_set = cls(n_train, n_nodes, n_timesteps, ['avg_temp','rainfall'], dset=dset[:n_train], normalize=normalize)
-        normalize_params = train_set.get_normalize_params()
-        
-        valid_set = cls(n_valid, n_nodes, n_timesteps, ['avg_temp','rainfall'], dset=dset[n_train:n_train+n_valid], normalize=normalize, normalize_params=normalize_params)
-        
-        test_set = cls(n_samples - (n_train + n_valid), n_nodes, n_timesteps, ['avg_temp','rainfall'], dset=dset[n_train+n_valid:], normalize=normalize, normalize_params=normalize_params)
-        
-        return (train_set, valid_set, test_set)
-        
 
         
     def __len__(self):
@@ -106,64 +95,81 @@ class WeatherDataset(Dataset):
             self.__normalize_dataset()
 
         return self.dset[idx]
-        
-#         if not self.normalize:
-#         else:
-#             shape = self.dset.shape
-#             assert len(shape) == 4, "Dataset indexing error: Wrong underlying dataset shape"
-            
-#             if self.__normalize_params is None:
-#                 print("Setting default normalization params in __getitem__")
-#                 self.__normalize_params = tuple((self.dset[:,:,:,feature].mean(), self.dset[:,:,:,feature].std()) for feature in range(shape[-1]))
-            
-#             assert len(self.__normalize_params) == len(self.features) and len(self.__normalize_params[0]) == 2, "Normalize params incorrect format. Use ((feature1.mean, feature1.std),...,(feature_n.mean, feature_n.std))"
-                
-#             return np.apply_along_axis(lambda x: [(x[feat] - self.__normalize_params[feat][0])/(self.__normalize_params[feat][1] if self.__normalize_params[feat][1] != 0 else 1) for feat in range(shape[-1])], -1, self.dset[:])[idx]
-
-            
-#             if isinstance(idx, int) or isinstance(idx, slice):
-#                 sample = self.dset[idx]
-#             elif isinstance(idx, tuple):
-#                 sample = self.dset[idx[0]]
-#             else:
-#                 print(idx)
-#                 assert False, "Multi-dimensional indexing is not supported in WeatherDataset with normalization"
-
-#             reshaped = sample.reshape(sample.shape[:-3] + (sample.shape[-3]*sample.shape[-2], sample.shape[-1]))
-#             reshaped = np.apply_along_axis(lambda x: (x-x.mean())/(x.std() if x.std() != 0 else 1), -2, reshaped).reshape(sample.shape)
-
-
-#             return reshaped if isinstance(idx, int) or isinstance(idx, slice) else reshaped[idx[1:]]
     
+    def get_sample_config(self, idx):
+        """
+        Returns the generating configuration of the sample corresponding to the index given as a parameter.
+        Args:
+            idx(index): The index for accessing the underlying configuration information.
+        """
+        if isinstance(idx, int) or isinstance(idx, splice):
+            return self.configurations[self.config_indices[idx]] 
+        else:
+            assert False, "Samples can only be indexed by integers or single splices"
+            
+    def get_config_list(self):
+        """
+        Returns the set of unique sample indices used to generate this dataset.
+        """
+        return self.configurations
+        
+    def get_complete_config_list(self):
+        """
+        Returns the entire list of configurations, corresponding to sample indices.
+            There will be many repetitions.
+        """
+        return [self.configurations[ix] for ix in self.config_indices]
+            
     def get_normalize_params(self):
+        """
+        Returns normalization mean and standard deviation for each feature.
+        """
         return self.__normalize_params
     
     def __normalize_dataset(self):
         """
         Normalizes the dataset based on the mean and standard deviation for each feature in self.__normalize_params
         """
-        
-        print(self.__normalize_params)
-        assert self.__normalize_params is not None and len(self.__normalize_params) == len(self.features) and len(self.__normalize_params[0]) == 2, "Normalize params incorrect format. Use ((feature1.mean, feature1.std),...,(feature_n.mean, feature_n.std))"
-        assert self.dset.shape == (self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)), "Dataset dimensions do not match specifications"
-        
-        for feature in range(self.dset.shape[-1]):
-            self.dset[:,:,:,feature] = (self.dset[:,:,:,feature] - self.__normalize_params[feature][0])/(self.__normalize_params[feature][1] if self.__normalize_params[feature][1] != 0 else 1)
+        assert self.__normalize_params is not None \
+            and len(self.__normalize_params) == len(self.features) \
+            and len(self.__normalize_params[0]) == 2, \
+            "Normalize params incorrect format. Use ((feature1.mean, feature1.std),...,(feature_n.mean, feature_n.std))"
             
-    
+        assert self.dset.shape == (
+            self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)
+        ), "Dataset dimensions do not match specifications"
+                
+        for feature in range(self.dset.shape[-1]):
+            self.dset[:,:,:,feature] = (
+                self.dset[:,:,:,feature] - self.__normalize_params[feature][0]
+            ) / (self.__normalize_params[feature][1] if self.__normalize_params[feature][1] != 0 else 1)
+            
+        self.normalize=True
+
     def __denormalize_dataset(self):
         """
         Denormalizes the dataset based on the mean and standard deviation for each feature in self.__normalize_params
         """
-        
-        assert self.__normalize_params is not None and len(self.__normalize_params) == len(self.features) and len(self.__normalize_params[0]) == 2, "Normalize params incorrect format. Use ((feature1.mean, feature1.std),...,(feature_n.mean, feature_n.std))"
-        assert self.dset.shape == (self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)), "Dataset dimensions do not match specifications"
+        assert self.__normalize_params is not None \
+            and len(self.__normalize_params) == len(self.features) \
+            and len(self.__normalize_params[0]) == 2, \
+            "Normalize params incorrect format. Use ((feature1.mean, feature1.std),...,(feature_n.mean, feature_n.std))"
+            
+        assert self.dset.shape == (
+            self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)
+        ), "Dataset dimensions do not match specifications"
         
         for feature in range(self.dset.shape[-1]):
-            self.dset[:,:,:,feature] = (self.dset[:,:,:,feature] * (self.__normalize_params[feature][1] if self.__normalize_params[feature][1] != 0 else 1)) + self.__normalize_params[feature][0]
+            self.dset[:,:,:,feature] = (
+                self.dset[:,:,:,feature] * (
+                    self.__normalize_params[feature][1] if self.__normalize_params[feature][1] != 0 else 1
+                )
+            ) + self.__normalize_params[feature][0]
+            
+        self.normalize=False
 
-    
-    def generate_dset(self, filename, dataset_path, force_new, discard, from_partial):
+
+    def generate_dset(self, filename, dataset_path, force_new, discard, from_partial, threshold):
         """
         Actual meat and potatoes of the data generation process, same params as constructor.
         """
@@ -209,23 +215,41 @@ class WeatherDataset(Dataset):
 
         # Whether to create a new file or use an existing one, if available
         if already_exists and not force_new and not from_partial:
-            self.dset = np.load(fpath, allow_pickle=True)[:self.n_samples]
+            self.dset, self.configurations, self.config_indices = np.load(fpath, allow_pickle=True)
+            if self.n_samples < len(self.dset):
+                self.dset = self.dset[:self.n_samples]
+                self.config_indices = self.config_indices[:self.n_samples]
+                self.configurations = self.configurations[:np.where(
+                    (np.array(self.configurations)==self.configurations[self.config_indices[-1]]).all(axis=1)
+                )[0][0] + 1]
+            
             assert self.dset.shape == (self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)), "Given file name contains dataset of a different shape than specified in parameters."
         
         else:
 
             all_files = glob.glob(join(data_dir, "*.csv"))
             data = pd.concat((pd.read_csv(f) for f in all_files), ignore_index=True)
-
-            existing_config = []
-
             
+            # Add column in datetime format, should standardize to use this everywhere in this file
+            # but it is a time-consuming process which doesn't have much benefit outside of elegance.
+            if 'date' not in data.columns:
+                data['date'] = pd.to_datetime(data[['year','month','day']])
+
+            existing_dset, existing_config, existing_indices = [], [], []
+
             if from_partial:
-                assert filename is not None and already_exists and "_partial" in filename, "Partial file not given or not found"
-                self.dset, existing_config = np.load(fpath, allow_pickle=True)
-                assert len(self.dset) < self.n_samples,"n_samples given is smaller than #samples in file, no need for partial"
-                assert self.dset.shape[1] == self.n_nodes and self.dset.shape[2] == self.n_timesteps and self.dset.shape[3] == len(self.features), "Incorrect shape for partial file"
-                print("Progress recovered from partial file, {} samples".format(len(self.dset)))
+                assert filename is not None and already_exists, "Partial file not given or not found"
+                existing_dset, existing_config, existing_indices = np.load(fpath, allow_pickle=True)
+                
+                assert len(existing_dset) < self.n_samples, \
+                    "n_samples given is smaller than #samples in file, no need for partial"
+                
+                assert existing_dset.shape[1] == self.n_nodes \
+                    and existing_dset.shape[2] == self.n_timesteps \
+                    and existing_dset.shape[3] == len(self.features), \
+                    "Incorrect shape for partial file"
+                
+                print("Progress recovered from partial file, {} samples".format(len(existing_dset)))
 
             self.save_file_name = join(data_dir, clean_fname) if filename is not None else join(data_dir,
                                                                                         str(self.n_samples) + "_"
@@ -233,74 +257,150 @@ class WeatherDataset(Dataset):
                                                                                         + str(self.n_timesteps) + "_"
                                                                                         + str(len(self.features)) + "_"
                                                                                         + str(highest_index+1))
-
-
             partial_save_freq = 0 if discard else 1000
 
-            self.dset, _ = self.sample_configurations(data, self.n_samples, self.n_nodes, self.n_timesteps, self.features, existing_config = existing_config, partial_save_freq=partial_save_freq)
+            self.dset, self.configurations, self.config_indices = self.sample_configurations(data, self.n_samples, self.n_nodes, self.n_timesteps, self.features, threshold, existing_dset, existing_config, existing_indices, partial_save_freq=partial_save_freq)
             
             if not discard:
-                np.save(self.save_file_name, self.dset)
-            
-    # The following functions can potentially be made into abstract methods, or made to work directly on self. variables
+                np.save(self.save_file_name, (self.dset, self.configurations, self.config_indices))
+        
     
-    def remove_deep(self, src, matching_df, verbose=False):
+    def export(self):
+        assert self.dset.shape == (
+            self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)
+        ), "Dataset dimensions do not match specifications"
+        
+        assert self.configurations is not None \
+            and self.config_indices is not None \
+            and len(self.config_indices) == len(self.dset) \
+            and len(self.configurations) > 0, \
+            "Dataset object parameters configurations and config_indices invalid"
+        
+        return self.dset, self.__normalize_params if self.normalize else None, self.configurations, self.config_indices
+    
+    @classmethod
+    def train_valid_test_split(cls, dset, features, spl=[80,10,10], normalize=False, export=False):
+        """
+        Gives 3 different dataset objects, for train/valid/test DataLoaders
+        Args:
+            dset(WeatherDataset): original dataset object
+            spl(list[int]): train/valid/test split, must add up to 100
+        """
+        assert len(spl) == 3 and sum(spl) == 100, "Invalid split given, the 3 values must sum to 100"
+        assert len(dset[:].shape) == 4, "Dimensionality of given dataset is incorrect"
+        
+        n_samples, n_nodes, n_timesteps, n_features = dset[:].shape
+        n_train = int(len(dset) * (spl[0] / 100))
+        n_valid = int(len(dset) * (spl[1] / 100))
+        
+        # Training set generation
+        train_dset = dset[:n_train]
+        train_config_indices = dset.config_indices[:n_train]
+        cutoff_train_index = np.where(
+                    (np.array(dset.configurations)==dset.configurations[train_config_indices[-1]]).all(axis=1)
+                )[0][0] + 1
+        train_configurations = dset.configurations[:cutoff_train_index]
+        
+        train_set = cls(n_train, n_nodes, n_timesteps, features, dset=train_dset, existing_config=train_configurations, existing_indices=train_config_indices, normalize=normalize)
+        normalize_params = train_set.get_normalize_params()
+        
+        # Validation set generation
+        valid_dset = dset[n_train: n_train + n_valid]
+        valid_config_indices = dset.config_indices[n_train: n_train + n_valid]
+        cutoff_valid_index = np.where(
+                    (np.array(dset.configurations)==dset.configurations[valid_config_indices[-1]]).all(axis=1)
+                )[0][0] + 1
+        
+        if cutoff_valid_index == cutoff_train_index:
+            valid_configurations = dset.configurations[cutoff_train_index-1:cutoff_train_index]
+        else:
+            valid_configurations = dset.configurations[cutoff_train_index:cutoff_valid_index]
+        
+        valid_set = cls(n_valid, n_nodes, n_timesteps, features, dset=dset[n_train:n_train+n_valid], existing_config=valid_configurations, existing_indices=valid_config_indices, normalize=normalize, normalize_params=normalize_params)
+
+        
+        # Test set generation
+        test_config_indices = dset.config_indices[n_train + n_valid:]
+        reverse_cutoff_test_index = np.where(
+                    (np.array(dset.configurations)==dset.configurations[test_config_indices[0]]).all(axis=1)
+                )[0][0]
+        
+        test_set = cls(n_samples - (n_train + n_valid), n_nodes, n_timesteps, features, dset=dset[n_train+n_valid:], existing_config=dset.configurations[reverse_cutoff_test_index:], existing_indices=test_config_indices, normalize=normalize, normalize_params=normalize_params)
+        
+        if not export:
+            return (train_set, valid_set, test_set)
+        
+        else:    
+            train_set, train_norm_params, train_configurations, train_config_indices = train_set.export()
+            valid_set, valid_norm_params, valid_configurations, valid_config_indices = valid_set.export()
+            test_set, test_norm_params, test_configurations, test_config_indices = test_set.export()
+
+            return dict(
+                normalize_params=train_norm_params,
+                
+                train_set = train_set,
+                train_configurations = train_configurations,
+                train_config_indices = train_config_indices,
+                                
+                valid_set = valid_set,
+                valid_configurations = valid_configurations,
+                valid_config_indices = valid_config_indices,
+
+                test_set = test_set,
+                test_configurations = test_configurations,
+                test_config_indices = test_config_indices
+            )
+
+    
+    @staticmethod
+    def remove_deep(src, matching_dates):
         """
         For each row in matching_dataframe, this function removes all matching rows in src.
         Assumes that matching_df only contains colums which we want to match against.
         Args:
             src (pandas DataFrame): The source DataFrame that rows will be removed from
-            matching_df (pandas DataFrame): The target DataFrame containing rows with
+            matching_dates (pd.DataFrame, pd.Series or pd.Index): The target containing
                 dates that will be removed from src
-            verbose(boolean): Whether to display progress and auxilliary information
         """
+        
         src.reset_index(inplace=True, drop=True)
-
-        original_len = len(src)
+        if len(src) == 0:
+            return
         
-        # Avoid extra work and later division by 0
-        if original_len == 0:
-            return 0
+        src_dates = src['date']
+        trg_dates = matching_dates['date'].drop_duplicates() if isinstance(matching_dates, pd.DataFrame) else matching_dates.drop_duplicates()
         
-        src_dates = src[['year','month','day']]
-        trg_dates = matching_df[['year','month','day']].drop_duplicates()
-        i=0
         indexNames = pd.Index([])
         
-        for index, row in trg_dates.iterrows():
-            indexNames = indexNames.union(src_dates[(src_dates['year'] == row['year'])
-                                                    & (src_dates['month'] == row['month'])
-                                                    & (src_dates['day'] == row['day'])].index)
-            i+=1
-            if i%100==0 and verbose:
-                print("{}/{}".format(i, len(trg_dates)))
-
+        for row in trg_dates:
+            indexNames = indexNames.union(src_dates[src_dates == row].index)
+        
         src.drop(indexNames , inplace=True)
         src.reset_index(inplace=True, drop=True)
-        reduction_percentage = (1-(len(src)/original_len))*100
-
-        if verbose:
-            print("Finished. {}% Reduction in size".format(reduction_percentage))
-
-        return reduction_percentage
-
-    def align_dates(self, df, features):
+        
+    
+    @staticmethod
+    def align_dates(df, features, n_nodes):
         """
         Aligns all stations in a given dataframe by date, by removing all entries for dates
             for which at least one weather station's measurements are missing
         Args:
             df (pandas DataFrame): The source DataFrame that rows will be removed from
             features(list(str)): The list of features which should be aligned in the time dimension
-        """
-        n_nodes = len(df['station_id'].unique())
-        all_present = (df.groupby(['year','month','day']).count()[features]==n_nodes).all(axis=1)
-        ix_removal = all_present[all_present==False].index
-        dates_removal = ix_removal.to_frame().reset_index(drop=True)
+            n_nodes(int): The number of nodes in the configuration.
+        """        
+        # Check if df contains the right number of nodes, return empty df otherwise
+        if n_nodes != len(df['station_id'].unique()):
+            df = df.iloc[0:0]
+            return
+        
+        all_present = (df.groupby('date').count()[features]==n_nodes).all(axis=1)
+        dates_removal = all_present[all_present==False].index
 
-        self.remove_deep(df, dates_removal)
+        WeatherDataset.remove_deep(df, dates_removal)
 
-
-    def get_configuration(self, df, conf):
+    @staticmethod
+    def get_configuration(df, conf, features):
         """
         Fetches a subset of the original dataset, which only contains the given configuration
             of weather stations, for which the entries that are removed are only those which
@@ -309,22 +409,30 @@ class WeatherDataset(Dataset):
             df (pandas DataFrame): The source DataFrame that contains all of the (dirty) data
             conf(list(str)): The list weather station IDs which constitute the configuration.
         """
-        # Get timesteps for rows matching configuration, remove null values
-        df_conf = df[df['station_id'].isin(conf)].reset_index(drop=True)
-        missing_rows = df_conf[df_conf['avg_temp'].isna() | df_conf['rainfall'].isna()]
-        self.remove_deep(df_conf, missing_rows)
+        
+        
+        # Get timesteps for rows matching configuration
+        df_conf = df[df['station_id'].isin(conf)].reset_index(drop=True).sort_values(by='date')
 
-        # Remove non-numerical values
-        null_vals = (pd.to_numeric(df_conf['rainfall'], errors='coerce').isnull())
-        null_indices = null_vals[null_vals==True].index
-        self.remove_deep(df_conf, df_conf.loc[null_indices])
+        # Remove non-numerical values, turning them into NaNs
+        for feature in features:
+            df_conf[feature] = pd.to_numeric(df_conf[feature], errors='coerce')
+            
+        # Interpolate missing values as much as possible to avoid removing too many time steps
+        df_conf[features] = df_conf.groupby('station_id')[features].apply(
+            lambda group: group.interpolate(axis=0, method='polynomial', order=2, limit=4)
+        )
+        
+        # Sort out NaNs
+        missing_rows = df_conf[df_conf[features].isna().any(axis=1)]
+        WeatherDataset.remove_deep(df_conf, missing_rows)
 
-        # Remove timesteps for which not all stations have data    
-        self.align_dates(df_conf, ['avg_temp','rainfall'])
+        # Remove timesteps for which not all stations have data
+        WeatherDataset.align_dates(df_conf, features, len(conf))
 
         return df_conf
 
-    def sample_configurations(self, df, n_samples, n_nodes, n_timesteps, features, threshold=3, existing_config = [], partial_save_freq = 1000):
+    def sample_configurations(self, df, n_samples, n_nodes, n_timesteps, features, threshold, existing_dset=[], existing_config = [], existing_indices=[], partial_save_freq = 1000):
         """
         Samples different combinations of weather stations from the pool of candidates, and selectively
             applies the propagated deletion operations specified above for each sample, so as to get all
@@ -337,45 +445,43 @@ class WeatherDataset(Dataset):
             threshold(int): Tolerance for consecutive missing dates before splitting into separate groups.
         """
         
-        # Add column in datetime format, should standardize to use this everywhere in this file
-        # but it is a time-consuming process which doesn't have much benefit outside of elegance.
-        if 'date' not in df.columns:
-            df['date'] = pd.to_datetime(df[['year','month','day']])
-        
         candidates = np.array(df['station_id'].unique())
         
         counter = df.groupby('station_id').count()
 
         # The combinations of stations that we choose to go with
         configurations = existing_config
+        config_indices = existing_indices
 
         sample_df_size = n_timesteps * n_nodes
 
-        partial_save_thresh = 0 if configurations == [] else len(self.dset) - (len(self.dset)%partial_save_freq)
+        partial_save_thresh = 0 if existing_dset == [] else len(existing_dset) - (len(existing_dset)%partial_save_freq)
         partial_save_thresh += partial_save_freq
 
         # The number of 'simulations' generated so far
-        current_samples = 0 if configurations == [] else len(self.dset)
+        current_samples = 0 if existing_dset == [] else len(existing_dset)
 
         # Numpy format dataset
-        dataset = np.empty((0, n_nodes, n_timesteps, len(features))) if configurations == [] else self.dset
+        dataset = np.empty((0, n_nodes, n_timesteps, len(features))) if existing_dset == [] else existing_dset
+        
+        assert len(config_indices) == len(dataset), "Mismatch between dataset and config_indices array"
 
         while current_samples < n_samples:
             sample = np.random.choice(candidates, size=n_nodes, replace=False)
                         
             # Skip iteration if we come across a duplicate (1/75287520 chance for 5 nodes)
-            if self.nested_list_member(configurations, sample):
+            if WeatherDataset.nested_list_member(configurations, sample):
                 continue
 
             configurations.append(sample)
 
-            df_conf = self.get_configuration(df, sample)
+            df_conf = WeatherDataset.get_configuration(df, sample, features)
                         
             # If all stations made it through the deletion process, and there are enough time steps for >=1 sample
             if len(df_conf['station_id'].unique()) == n_nodes and len(df_conf) >= sample_df_size:
                 
                 # Sort values by date
-                df_conf = df_conf.sort_values(by='date')
+                df_conf = df_conf.sort_values(by='date').reset_index(drop=True)
                 
                 # Turn datetime objects into ordinal values in order to easily find consecutive clusters
                 ordinal_dates = df_conf['date'].apply(pd.datetime.toordinal)
@@ -425,6 +531,9 @@ class WeatherDataset(Dataset):
 
                     # Append to dataset array
                     dataset = np.append(dataset, groups_np, axis=0)
+                    
+                    # Append to config indices array
+                    config_indices += [len(configurations) - 1] * samples_to_use
 
                     if current_samples == n_samples:
                         break
@@ -432,14 +541,15 @@ class WeatherDataset(Dataset):
                     # Increase threshold by the frequency when it is passed to simulate modulo behavior for nonconsecutive values
                     if current_samples >= partial_save_thresh and partial_save_freq != 0:
                         partial_save_thresh += partial_save_freq
-                        np.save(self.save_file_name + "_partial", (dataset, configurations))
+                        np.save(self.save_file_name + "_partial", (dataset, configurations, config_indices))
                         print("{} samples progress saved in partial file {}".format(len(dataset), self.save_file_name + "_partial.npy"))
 
                 print("Progress: {}/{}".format(current_samples, n_samples))
         
-        return dataset, configurations
+        return dataset, configurations, config_indices
 
-    def nested_list_member(self, nested_list, element):
+    @staticmethod
+    def nested_list_member(nested_list, element):
         """
         Utility function used for checking membership of a sample in the nested list of configurations
             used so far. Necessary because the standard Python formulation of (elem in list) fails in nested lists

@@ -50,6 +50,7 @@
             "path": "./datasets/weather",
             "examples": 40000,
             "timesteps": 100,
+            "suffix": "",
             "force_new": false,
             "discard": false,
             "splits": [

@@ -1,5 +1,6 @@
 import os
 import sys
+import pickle
 
 import numpy as np
 import torch
@@ -90,6 +91,43 @@ def load_spring_data(batch_size=128, suffix='', path="data/"):
         test_loader=test_data_loader
     )
 
+def load_weather_data_raw(batch_size, n_samples, n_nodes, n_timesteps, features, filepath):
+    """
+    """
+    data_dict = pickle.load(open(filepath, "rb"))
+    assert n_samples == len(data_dict['train_set']) \
+                           + len(data_dict['valid_set']) \
+                           + len(data_dict['test_set']), \
+            "n_samples does not match sum of samples in dictionary."
+            
+    assert n_nodes == data_dict['train_set'].shape[1] \
+        and n_nodes == data_dict['valid_set'].shape[1] \
+        and n_nodes == data_dict['test_set'].shape[1], \
+        "Number of nodes in dictionary sets do not match n_nodes"
+    
+    assert n_timesteps == data_dict['train_set'].shape[2] \
+        and n_timesteps == data_dict['valid_set'].shape[2] \
+        and n_timesteps == data_dict['test_set'].shape[2], \
+        "Number of timestamps in dictionary sets do not match n_timesteps"
+    
+    assert len(features) == data_dict['train_set'].shape[3] \
+        and len(features) == data_dict['valid_set'].shape[3] \
+        and len(features) == data_dict['test_set'].shape[3], \
+        "Number of features in dictionary sets do not match len(features)"
+    
+    train_data = TensorDataset(torch.FloatTensor(data_dict['train_set']))
+    valid_data = TensorDataset(torch.FloatTensor(data_dict['valid_set']))
+    test_data = TensorDataset(torch.FloatTensor(data_dict['test_set']))
+    
+    train_data_loader = DataLoader(train_data, batch_size=batch_size)
+    valid_data_loader = DataLoader(valid_data, batch_size=batch_size)
+    test_data_loader = DataLoader(test_data, batch_size=batch_size)
+
+    return dict(
+        train_loader=train_data_loader,
+        valid_loader=valid_data_loader,
+        test_loader=test_data_loader
+    )
 
 def load_weather_data(batch_size, n_samples, n_nodes, n_timesteps, features, train_valid_test_split=[80, 10, 10],
                       filename=None, dataset_path=None, force_new=False, discard=False, normalize=True):
@@ -118,7 +156,7 @@ def load_weather_data(batch_size, n_samples, n_nodes, n_timesteps, features, tra
         train_valid_test_split) == 100, "Invalid split given, the 3 values must sum to 100"
 
     # Makes actual WeatherDataset objects instead of just putting numpy arrays in the loader
-    train_set, valid_set, test_set = WeatherDataset.train_valid_test_split(dset, train_valid_test_split, normalize=normalize)
+    train_set, valid_set, test_set = WeatherDataset.train_valid_test_split(dset, features, train_valid_test_split, normalize=normalize, export=False)
     
     print("Split completed: {}, {}, {}".format(train_set[:].shape, valid_set[:].shape, test_set[:].shape))
     return dict(
