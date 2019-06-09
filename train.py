@@ -39,15 +39,19 @@ def run_experiment(config):
                                         n_timesteps=config['data']['random']['timesteps'])
     elif config['data']['name'] == 'weather':
         
-        filename = f"{config['data']['weather']['examples']}_{config['data']['weather']['atoms']}_{config['data']['weather']['timesteps']}_2_0_raw{config['data']['weather']['suffix']}.pickle"
+        filename = f"{config['data']['weather']['examples']}_{config['data']['weather']['atoms']}_{config['data']['weather']['timesteps']}_{config['data']['weather']['dims']}_0_raw{config['data']['weather']['suffix']}.pickle"
         
         print(filename)
+
+        features = ['avg_temp']
+        if config['data']['weather']['timesteps'] == 2:
+            features += ["rainfall"]
         
         data_loaders = load_weather_data_raw(batch_size=config['training']['batch_size'],
                                          n_samples=config['data']['weather']['examples'],
                                          n_nodes=config['data']['weather']['atoms'],
                                          n_timesteps=config['data']['weather']['timesteps'],
-                                         features=['avg_temp', 'rainfall'], #TODO,
+                                         features=features , #TODO,
                                          filepath=join(config['data']['path'], "weather", filename))
     else:
         raise NotImplementedError(config['data']['name'])

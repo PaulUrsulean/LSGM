@@ -8,7 +8,7 @@ from torch.utils import data
 from torch.utils.data import TensorDataset, DataLoader
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from weather_loader import WeatherDataset
+from .weather_loader import WeatherDataset
 
 
 
