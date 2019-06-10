@@ -221,16 +221,14 @@ class Model:
 
             batch = Variable(batch)
 
-            if batch.size(2) > self.timesteps:
-                # In case more timesteps are available, clip to avaid errors with dimensions
-                batch = batch[:, :, :self.timesteps, :]
+            encoder_input = batch[:, :, :self.timesteps, :]
 
             self.rel_rec, self.rel_send = gen_fully_connected(self.n_atoms
                                                               , device=self.device)
 
             self.optimizer.zero_grad()
 
-            logits = self.encoder(batch, self.rel_rec, self.rel_send)
+            logits = self.encoder(encoder_input, self.rel_rec, self.rel_send)
             edges = gumbel_softmax(logits, tau=self.temp, hard=self.sample_hard)
             prob = my_softmax(logits, -1)
 
@@ -428,11 +426,9 @@ class Model:
                 else:
                     data = data.to(self.device).float()
 
-                if data.size(2) > self.timesteps:
-                    # In case more timesteps are available, clip to avaid errors with dimensions
-                    data = data[:, :, :self.timesteps, :]
+                encoder_input = data[:, :, :self.timesteps, :]
 
-                logits = self.encoder(data, self.rel_rec, self.rel_send)
+                logits = self.encoder(encoder_input, self.rel_rec, self.rel_send)
                 edges = gumbel_softmax(logits, tau=self.temp, hard=True)
                 prob = my_softmax(logits, -1)
 
