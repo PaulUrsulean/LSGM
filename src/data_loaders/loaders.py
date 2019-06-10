@@ -8,7 +8,7 @@ from torch.utils import data
 from torch.utils.data import TensorDataset, DataLoader
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from weather_loader import WeatherDataset
+from .weather_loader import WeatherDataset
 
 
 
@@ -119,9 +119,9 @@ def load_weather_data_raw(batch_size, n_samples, n_nodes, n_timesteps, features,
     valid_data = TensorDataset(torch.FloatTensor(data_dict['valid_set']))
     test_data = TensorDataset(torch.FloatTensor(data_dict['test_set']))
     
-    train_data_loader = DataLoader(train_data, batch_size=batch_size)
-    valid_data_loader = DataLoader(valid_data, batch_size=batch_size)
-    test_data_loader = DataLoader(test_data, batch_size=batch_size)
+    train_data_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    valid_data_loader = DataLoader(valid_data, batch_size=batch_size, shuffle=True)
+    test_data_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
 
     return dict(
         train_loader=train_data_loader,
