@@ -221,16 +221,14 @@ class Model:
 
             batch = Variable(batch)
 
-            if batch.size(2) > self.timesteps:
-                # In case more timesteps are available, clip to avaid errors with dimensions
-                batch = batch[:, :, :self.timesteps, :]
+            encoder_input = batch[:, :, :self.timesteps, :]
 
             self.rel_rec, self.rel_send = gen_fully_connected(self.n_atoms
                                                               , device=self.device)
 
             self.optimizer.zero_grad()
 
-            logits = self.encoder(batch, self.rel_rec, self.rel_send)
+            logits = self.encoder(encoder_input, self.rel_rec, self.rel_send)
             edges = gumbel_softmax(logits, tau=self.temp, hard=self.sample_hard)
             prob = my_softmax(logits, -1)
 
@@ -314,6 +312,7 @@ class Model:
 
         test_loss = 0.0
         tot_mse = 0.0
+        tot_baseline_mse = 0.0
         total_test_metrics = np.zeros(len(self.metrics))
         with torch.no_grad():
             for batch_id, (data) in enumerate(self.test_loader):
@@ -371,6 +370,7 @@ class Model:
                     # output = output[:, :, args.timesteps:, :]
                     # target = data[:, :, -args.timesteps:, :]
                     #
+
                 else:
                     data_plot = data[:, :, self.timesteps:self.timesteps + 21,
                                 :].contiguous()
@@ -378,13 +378,21 @@ class Model:
                                           20)  # 20 in paper imp
                     target = data_plot[:, :, 1:, :]
 
+                # Baseline, just predict first value repeatedly
+                baseline = data[:, :, self.timesteps:self.timesteps + 1, :].expand_as(target)
+                mse_baseline = ((target - baseline) ** 2).mean(dim=0).mean(
+                    dim=0).mean(
+                    dim=-1)
+                tot_baseline_mse += mse_baseline.data.cpu().numpy()
+
                 mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
                 tot_mse += mse.data.cpu().numpy()
 
         res = {
             'test_loss': test_loss / len(self.test_loader),
             'test_full_loss': list(float(f) for f in (tot_mse / len(self.test_loader))),
-            'test_metrics': (total_test_metrics / len(self.test_loader)).tolist()
+            'test_metrics': (total_test_metrics / len(self.test_loader)).tolist(),
+            'test_baseline': (tot_baseline_mse / len(self.test_loader)).tolist()
         }
 
         # Tidy up
@@ -418,11 +426,9 @@ class Model:
                 else:
                     data = data.to(self.device).float()
 
-                if data.size(2) > self.timesteps:
-                    # In case more timesteps are available, clip to avaid errors with dimensions
-                    data = data[:, :, :self.timesteps, :]
+                encoder_input = data[:, :, :self.timesteps, :]
 
-                logits = self.encoder(data, self.rel_rec, self.rel_send)
+                logits = self.encoder(encoder_input, self.rel_rec, self.rel_send)
                 edges = gumbel_softmax(logits, tau=self.temp, hard=True)
                 prob = my_softmax(logits, -1)
 

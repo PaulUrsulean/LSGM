@@ -46,10 +46,11 @@
         },
         "weather": {
             "atoms": 5,
-            "dims": 2,
+            "dims": 1,
             "path": "./datasets/weather",
-            "examples": 40000,
+            "examples": 100000,
             "timesteps": 100,
+            "suffix": "",
             "force_new": false,
             "discard": false,
             "splits": [
