@@ -45,8 +45,8 @@ _default_config = dict(
         ),
         weather=dict(
             atoms=5,
-            dims=2,
-            examples=40000,
+            dims=1,
+            examples=100000,
             timesteps=100,
             suffix="",
             force_new=False,
