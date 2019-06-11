@@ -219,11 +219,11 @@ class WeatherDataset(Dataset):
             if self.n_samples < len(self.dset):
                 self.dset = self.dset[:self.n_samples]
                 self.config_indices = self.config_indices[:self.n_samples]
-                self.configurations = self.configurations[:np.where(
-                    (np.array(self.configurations)==self.configurations[self.config_indices[-1]]).all(axis=1)
-                )[0][0] + 1]
+                self.configurations = self.configurations[:(self.config_indices[-1]+1)]
             
             assert self.dset.shape == (self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)), "Given file name contains dataset of a different shape than specified in parameters."
+            
+            print("Successfully loaded file at {}".format(fpath))
         
         else:
 
@@ -298,15 +298,16 @@ class WeatherDataset(Dataset):
         test_dset = dset[n_train + n_valid:]
         test_config_indices = dset.config_indices[n_train + n_valid:]
         
+        valid_set = cls(
+            n_valid, n_nodes, n_timesteps, features, dset = valid_dset, existing_config=all_configs,
+            existing_indices=valid_config_indices, normalize=normalize, normalize_params=normalize_params
+        )
+        test_set = cls(
+            n_samples - (n_train + n_valid), n_nodes, n_timesteps, features, dset = test_dset, existing_config = all_configs,
+            existing_indices = test_config_indices, normalize = normalize, normalize_params = normalize_params
+        )
+        
         if not export:
-            valid_set = cls(
-                n_valid, n_nodes, n_timesteps, features, dset = valid_dset, existing_config=all_configs,
-                existing_indices=valid_config_indices, normalize=normalize, normalize_params=normalize_params
-            )
-            test_set = cls(
-                n_samples - (n_train + n_valid), n_nodes, n_timesteps, features, dset = test_dset, existing_config = all_configs,
-                existing_indices = test_config_indices, normalize = normalize, normalize_params = normalize_params
-            )
             return (train_set, valid_set, test_set)
         
         else:    
@@ -314,14 +315,14 @@ class WeatherDataset(Dataset):
                 normalize_params=normalize_params,
                 configurations = all_configs,
                 
-                train_set = train_dset,
-                train_config_indices = train_config_indices,
+                train_set = train_set.dset,
+                train_config_indices = train_set.config_indices,
                                 
-                valid_set = valid_dset,
-                valid_config_indices = valid_config_indices,
+                valid_set = valid_set.dset,
+                valid_config_indices = valid_set.config_indices,
 
-                test_set = test_dset,
-                test_config_indices = test_config_indices
+                test_set = test_set.dset,
+                test_config_indices = test_set.config_indices
             )
 
     
