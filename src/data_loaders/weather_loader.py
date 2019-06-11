@@ -265,20 +265,6 @@ class WeatherDataset(Dataset):
             
             if not discard:
                 np.save(self.save_file_name, (self.dset, self.configurations, self.config_indices))
-        
-    
-    def export(self):
-        assert self.dset.shape == (
-            self.n_samples, self.n_nodes, self.n_timesteps, len(self.features)
-        ), "Dataset dimensions do not match specifications"
-        
-        assert self.configurations is not None \
-            and self.config_indices is not None \
-            and len(self.config_indices) == len(self.dset) \
-            and len(self.configurations) > 0, \
-            "Dataset object parameters configurations and config_indices invalid"
-        
-        return self.dset, self.__normalize_params if self.normalize else None, self.configurations, self.config_indices
     
     @classmethod
     def train_valid_test_split(cls, dset, features, spl=[80,10,10], normalize=False, export=False):
@@ -295,67 +281,46 @@ class WeatherDataset(Dataset):
         n_train = int(len(dset) * (spl[0] / 100))
         n_valid = int(len(dset) * (spl[1] / 100))
         
+        all_configs = dset.configurations
+        
         # Training set generation
         train_dset = dset[:n_train]
         train_config_indices = dset.config_indices[:n_train]
-        cutoff_train_index = np.where(
-                    (np.array(dset.configurations)==dset.configurations[train_config_indices[-1]]).all(axis=1)
-                )[0][0] + 1
-        train_configurations = dset.configurations[:cutoff_train_index]
         
-        train_set = cls(n_train, n_nodes, n_timesteps, features, dset=train_dset, existing_config=train_configurations, existing_indices=train_config_indices, normalize=normalize)
+        train_set = cls(n_train, n_nodes, n_timesteps, features, dset=train_dset, existing_config=all_configs, existing_indices=train_config_indices, normalize=normalize)
         normalize_params = train_set.get_normalize_params()
         
         # Validation set generation
         valid_dset = dset[n_train: n_train + n_valid]
         valid_config_indices = dset.config_indices[n_train: n_train + n_valid]
-        cutoff_valid_index = np.where(
-                    (np.array(dset.configurations)==dset.configurations[valid_config_indices[-1]]).all(axis=1)
-                )[0][0] + 1
-        
-        if cutoff_valid_index == cutoff_train_index:
-            valid_configurations = dset.configurations[cutoff_train_index-1:cutoff_train_index]
-        else:
-            valid_configurations = dset.configurations[cutoff_train_index:cutoff_valid_index]
-            
-        # Fixing the indexing after splitting
-        valid_config_indices = valid_config_indices - len(train_configurations)
-        
-        valid_set = cls(n_valid, n_nodes, n_timesteps, features, dset=dset[n_train:n_train+n_valid], existing_config=valid_configurations, existing_indices=valid_config_indices, normalize=normalize, normalize_params=normalize_params)
-
         
         # Test set generation
+        test_dset = dset[n_train + n_valid:]
         test_config_indices = dset.config_indices[n_train + n_valid:]
-        reverse_cutoff_test_index = np.where(
-                    (np.array(dset.configurations)==dset.configurations[test_config_indices[0]]).all(axis=1)
-                )[0][0]
-
-        # Fixing the indexing after splitting
-        test_config_indices = test_config_indices - (len(train_configurations) + len(valid_configurations))
-        
-        test_set = cls(n_samples - (n_train + n_valid), n_nodes, n_timesteps, features, dset=dset[n_train+n_valid:], existing_config=dset.configurations[reverse_cutoff_test_index:], existing_indices=test_config_indices, normalize=normalize, normalize_params=normalize_params)
         
         if not export:
+            valid_set = cls(
+                n_valid, n_nodes, n_timesteps, features, dset = valid_dset, existing_config=all_configs,
+                existing_indices=valid_config_indices, normalize=normalize, normalize_params=normalize_params
+            )
+            test_set = cls(
+                n_samples - (n_train + n_valid), n_nodes, n_timesteps, features, dset = test_dset, existing_config = all_configs,
+                existing_indices = test_config_indices, normalize = normalize, normalize_params = normalize_params
+            )
             return (train_set, valid_set, test_set)
         
         else:    
-            train_set, train_norm_params, train_configurations, train_config_indices = train_set.export()
-            valid_set, valid_norm_params, valid_configurations, valid_config_indices = valid_set.export()
-            test_set, test_norm_params, test_configurations, test_config_indices = test_set.export()
-
             return dict(
-                normalize_params=train_norm_params,
+                normalize_params=normalize_params,
+                configurations = all_configs,
                 
-                train_set = train_set,
-                train_configurations = train_configurations,
+                train_set = train_dset,
                 train_config_indices = train_config_indices,
                                 
-                valid_set = valid_set,
-                valid_configurations = valid_configurations,
+                valid_set = valid_dset,
                 valid_config_indices = valid_config_indices,
 
-                test_set = test_set,
-                test_configurations = test_configurations,
+                test_set = test_dset,
                 test_config_indices = test_config_indices
             )
 
