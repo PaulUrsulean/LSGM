@@ -257,6 +257,8 @@ class WeatherDataset(Dataset):
                                                                                         + str(self.n_timesteps) + "_"
                                                                                         + str(len(self.features)) + "_"
                                                                                         + str(highest_index+1))
+            print(self.save_file_name)
+            
             partial_save_freq = 0 if discard else 1000
 
             self.dset, self.configurations, self.config_indices = self.sample_configurations(data, self.n_samples, self.n_nodes, self.n_timesteps, self.features, threshold, existing_dset, existing_config, existing_indices, partial_save_freq=partial_save_freq)
@@ -315,6 +317,9 @@ class WeatherDataset(Dataset):
             valid_configurations = dset.configurations[cutoff_train_index-1:cutoff_train_index]
         else:
             valid_configurations = dset.configurations[cutoff_train_index:cutoff_valid_index]
+            
+        # Fixing the indexing after splitting
+        valid_config_indices = valid_config_indices - len(train_configurations)
         
         valid_set = cls(n_valid, n_nodes, n_timesteps, features, dset=dset[n_train:n_train+n_valid], existing_config=valid_configurations, existing_indices=valid_config_indices, normalize=normalize, normalize_params=normalize_params)
 
@@ -324,6 +329,9 @@ class WeatherDataset(Dataset):
         reverse_cutoff_test_index = np.where(
                     (np.array(dset.configurations)==dset.configurations[test_config_indices[0]]).all(axis=1)
                 )[0][0]
+
+        # Fixing the indexing after splitting
+        test_config_indices = test_config_indices - (len(train_configurations) + len(valid_configurations))
         
         test_set = cls(n_samples - (n_train + n_valid), n_nodes, n_timesteps, features, dset=dset[n_train+n_valid:], existing_config=dset.configurations[reverse_cutoff_test_index:], existing_indices=test_config_indices, normalize=normalize, normalize_params=normalize_params)
         
