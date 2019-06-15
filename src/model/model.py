@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch import Tensor
 from torch.autograd import Variable
 from torch.nn import DataParallel
 from torch.nn.utils import clip_grad_value_
@@ -111,7 +112,6 @@ class Model:
         self.sample_hard = config['model']['hard']
 
         self.n_edge_types = config['model']['n_edge_types']
-        self.log_prior = config['globals']['prior']  # TODO
         self.add_const = config['globals']['add_const']
         self.eps = config['globals']['eps']
         self.loss_beta = config['loss']['beta']
@@ -121,6 +121,17 @@ class Model:
         self.dynamic_graph = config['model']['dynamic_graph']
 
         self.log_step = config['logging']['log_step']
+
+        # Set prior accordingly if it should be used
+        if config['globals']['prior']:
+            first_edge_probability = 0.91 # Used in paper for motion capture data
+            remaining_percent = (1.0 - first_edge_probability) / (self.n_edge_types - 1)
+            prior = np.ones(shape=(self.n_edge_types)) * remaining_percent
+            prior[0] = first_edge_probability
+            self.log_prior = np.log(prior)
+            assert(np.sum(prior) == 1.0, "Probabilities in edge prior should sum to 1.")
+            print(f"Training with prior {prior} (log: {self.log_prior})")
+
 
     def train(self):
         self.encoder.train()
@@ -250,6 +261,7 @@ class Model:
             loss, nll, kl = losses.vae_loss(predictions=output,
                                             targets=ground_truth,
                                             edge_probs=prob,
+                                            device=self.device,
                                             n_atoms=self.n_atoms,
                                             n_edge_types=self.n_edge_types,
                                             log_prior=self.log_prior,
@@ -341,6 +353,7 @@ class Model:
                 loss, nll, kl = losses.vae_loss(predictions=output,
                                                 targets=ground_truth,
                                                 edge_probs=prob,
+                                                device=self.device,
                                                 n_atoms=self.n_atoms,
                                                 n_edge_types=self.n_edge_types,
                                                 log_prior=self.log_prior,
@@ -440,6 +453,7 @@ class Model:
                 loss, nll, kl = losses.vae_loss(predictions=output,
                                                 targets=ground_truth,
                                                 edge_probs=prob,
+                                                device=self.device,
                                                 n_atoms=self.n_atoms,
                                                 n_edge_types=self.n_edge_types,
                                                 log_prior=self.log_prior,
