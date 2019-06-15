@@ -446,7 +446,7 @@ class Model:
                 prob = my_softmax(logits, -1)
 
                 # validation output uses teacher forcing
-                output = self.decoder(data, edges, self.rel_rec, self.rel_send, 1)
+                output = self.decoder(data, edges, self.rel_rec, self.rel_send, 10)
 
                 ground_truth = data[:, :, 1:, :]
 
