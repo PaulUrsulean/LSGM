@@ -8,7 +8,7 @@ import torch.nn
 from src.config_parser import ConfigParser, options
 from src.data_loaders.loaders import load_spring_data, load_random_data, load_weather_data, load_weather_data_raw
 from src.model.model import Model
-from src.model.modules import MLPEncoder, RNNDecoder, CNNEncoder, MLPDecoder
+from src.model.modules import MLPEncoder, RNNDecoder, CNNEncoder, MLPDecoder, CorrelationEncoder
 from src.model.utils import load_models
 
 
@@ -106,6 +106,9 @@ def create_encoder(config):
                              n_out=config['model']['n_edge_types'],
                              do_prob=config['model']['encoder']['dropout'],
                              factor=config['model']['factor_graph'])
+    elif config['model']['encoder']['model'] == 'correlation':
+        encoder = CorrelationEncoder()
+
     return encoder
 
 

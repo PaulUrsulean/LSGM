@@ -129,6 +129,29 @@ class MLPEncoder(nn.Module):
         return self.fc_out(x)
 
 
+class CorrelationEncoder(nn.Module):
+
+    def __init__(self):
+        super(CorrelationEncoder, self).__init__()
+
+    def forward(self, inputs, rel_rec, rel_send):
+        # Calculate correlation matrix for each sample
+        # Covariance Matrix
+
+        # Normalize to get correlation matrix
+
+        # Thresholding
+
+        # Remove diagonal entries
+
+        # m = [atoms * atoms]
+        # indices = get_offdiag_indices(n_atoms):
+        # m[:, indices]
+
+        # [n_samples, n_atoms * (n_atoms - 1)]
+        return None
+
+
 class CNNEncoder(nn.Module):
     # Taken directly from https://github.com/ethanfetaya/NRI/blob/master/modules.py
     def __init__(self, n_in, n_hid, n_out, do_prob=0., factor=True):
