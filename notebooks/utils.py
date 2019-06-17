@@ -34,43 +34,6 @@ def id_2_loc(i):
     return (lon, lat)
 
 
-def plot_interactions(station_ids: List, latent_graph: np.ndarray, map):
-    """
-    Given station ids and latent graph plot edges in different colors
-    """
-    fig = plt.figure(figsize=(8, 8))
-
-    locations = [id_2_loc(i) for i in station_ids]
-    pixel_coords = [map(*coords) for coords in locations]
-
-    map.shadedrelief()
-    map.drawcountries()
-    # m.bluemarble()
-    # m.etopo()
-
-    # Plot Locations
-    for i, (x, y) in enumerate(pixel_coords):
-        plt.plot(x, y, 'ok', markersize=5, color='white')
-        plt.text(x, y, str(i), fontsize=12, color='white');
-
-    # Draw Latent Graph
-    n_atoms = len(station_ids)
-    n_edge_types = latent_graph.shape[-1]
-
-    colors = plt.get_cmap('Set1')
-
-    for i in range(n_atoms):
-        for j in range(n_atoms):
-            for edge_type in range(n_edge_types):
-                if latent_graph[i, j, edge_type] > 0.5:
-                    # Draw Line
-                    # x = pixel_coords[i]
-                    # y = pixel_coords[j]
-                    x = locations[i]
-                    y = locations[j]
-                    # plt.plot(x, y, color=colors(edge_type), lw=5)
-                    map.drawgreatcircle(x[0], x[1], y[0], y[1], color=colors(edge_type))
-    plt.figure()
 
 
 def get_offdiag_indices(num_nodes):

@@ -290,6 +290,7 @@ class RNNDecoder(nn.Module):
         if inputs.is_cuda:
             hidden = hidden.to(inputs.device)
 
+
         pred_all = []
 
         for step in range(0, inputs.size(1) - 1):
