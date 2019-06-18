@@ -7,68 +7,9 @@ import torch.nn
 
 from src.config_parser import ConfigParser, options
 from src.data_loaders.loaders import load_spring_data, load_random_data, load_weather_data, load_weather_data_raw
+from src.model import MLPDecoder, RNNDecoder, MLPEncoder, CNNEncoder
 from src.model.model import Model
-from src.model.modules import MLPEncoder, RNNDecoder, CNNEncoder, MLPDecoder
 from src.model.utils import load_models
-
-
-def run_experiment(config):
-    # Random Seeds
-    torch.random.manual_seed(config['globals']['seed'])
-    np.random.seed(config['globals']['seed'])
-
-    logger = logging.getLogger("experiment")
-
-    logger.debug("Creating encoder and decoder")
-    encoder = create_encoder(config)
-    decoder = create_decoder(config)
-
-    if config['training']['load_path']:
-        encoder, decoder = load_models(encoder, decoder, config)
-
-    logger.debug("Loading data...")
-    if config['data']['name'] == 'springs':
-        data_loaders = load_spring_data(batch_size=config['training']['batch_size'],
-                                        suffix=config['data']['springs']['suffix'],
-                                        path=join(config['data']['path'], "springs"))
-    elif config['data']['name'] == 'random':
-        data_loaders = load_random_data(batch_size=config['training']['batch_size'],
-                                        n_atoms=config['data']['random']['atoms'],
-                                        n_examples=config['data']['random']['examples'],
-                                        n_dims=config['data']['random']['dims'],
-                                        n_timesteps=config['data']['random']['timesteps'])
-    elif config['data']['name'] == 'weather':
-        
-        filename = f"{config['data']['weather']['examples']}_{config['data']['weather']['atoms']}_{config['data']['weather']['timesteps']}_{config['data']['weather']['dims']}_0_raw{config['data']['weather']['suffix']}.pickle"
-        
-        print(filename)
-
-        features = ['avg_temp']
-        if config['data']['weather']['timesteps'] == 2:
-            features += ["rainfall"]
-        
-        data_loaders = load_weather_data_raw(batch_size=config['training']['batch_size'],
-                                         n_samples=config['data']['weather']['examples'],
-                                         n_nodes=config['data']['weather']['atoms'],
-                                         n_timesteps=config['data']['weather']['timesteps'],
-                                         features=features , #TODO,
-                                         filepath=join(config['data']['path'], "weather", filename))
-    else:
-        raise NotImplementedError(config['data']['name'])
-
-    logger.debug("Creating model...")
-    model = Model(encoder=encoder,
-                  decoder=decoder,
-                  data_loaders=data_loaders,
-                  config=config)
-
-    logger.debug("Starting training")
-    train_history = model.train()
-    logger.debug(train_history[-1])
-
-    logger.debug("Running evaluation")
-    test_results = model.test()
-    logger.debug(test_results)
 
 
 def create_decoder(config):
@@ -109,6 +50,70 @@ def create_encoder(config):
     return encoder
 
 
+def run_experiment(config):
+    # Random Seeds
+    torch.random.manual_seed(config['globals']['seed'])
+    np.random.seed(config['globals']['seed'])
+
+    logger = logging.getLogger("experiment")
+
+    logger.debug("Creating encoder and decoder")
+    encoder = create_encoder(config)
+    decoder = create_decoder(config)
+
+    if config['training']['load_path']:
+        encoder, decoder = load_models(encoder, decoder, config)
+
+    logger.debug("Loading data...")
+    data_loaders = load_data(config)
+
+    logger.debug("Creating model...")
+    model = Model(encoder=encoder,
+                  decoder=decoder,
+                  data_loaders=data_loaders,
+                  config=config)
+
+    logger.debug("Starting training")
+    train_history = model.train()
+    logger.debug(train_history[-1])
+
+    logger.debug("Running evaluation")
+    test_results = model.test()
+    logger.debug(test_results)
+
+
+def load_data(config):
+    if config['data']['name'] == 'springs':
+        data_loaders = load_spring_data(batch_size=config['training']['batch_size'],
+                                        suffix=config['data']['springs']['suffix'],
+                                        path=join(config['data']['path'], "springs"))
+    elif config['data']['name'] == 'random':
+        data_loaders = load_random_data(batch_size=config['training']['batch_size'],
+                                        n_atoms=config['data']['random']['atoms'],
+                                        n_examples=config['data']['random']['examples'],
+                                        n_dims=config['data']['random']['dims'],
+                                        n_timesteps=config['data']['random']['timesteps'])
+    elif config['data']['name'] == 'weather':
+        
+        filename = f"{config['data']['weather']['examples']}_{config['data']['weather']['atoms']}_{config['data']['weather']['timesteps']}_{config['data']['weather']['dims']}_0_raw{config['data']['weather']['suffix']}.pickle"
+        
+        print(filename)
+
+        features = ['avg_temp']
+        if config['data']['weather']['timesteps'] == 2:
+            features += ["rainfall"]
+        
+        data_loaders = load_weather_data_raw(batch_size=config['training']['batch_size'],
+                                         n_samples=config['data']['weather']['examples'],
+                                         n_nodes=config['data']['weather']['atoms'],
+                                         n_timesteps=config['data']['weather']['timesteps'],
+                                         features=features , #TODO,
+                                         filepath=join(config['data']['path'], "weather", filename))
+    else:
+        raise NotImplementedError(config['data']['name'])
+    return data_loaders
+
+
 if __name__ == '__main__':
     args = argparse.ArgumentParser(description='TODO')
     args.add_argument('-c', '--config', default="config.json", type=str,
@@ -118,3 +123,4 @@ if __name__ == '__main__':
 
     config = ConfigParser(args, options=options).config
     run_experiment(config)
+
