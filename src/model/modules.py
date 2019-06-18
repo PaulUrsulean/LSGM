@@ -134,22 +134,131 @@ class CorrelationEncoder(nn.Module):
     def __init__(self):
         super(CorrelationEncoder, self).__init__()
 
+    def get_offdiag_indices(self, num_nodes):
+        """Linear off-diagonal indices."""
+        ones = torch.ones(num_nodes, num_nodes)
+        eye = torch.eye(num_nodes, num_nodes)
+        offdiag_indices = (ones - eye).nonzero().t()
+        offdiag_indices = offdiag_indices[0] * num_nodes + offdiag_indices[1]
+
+        return offdiag_indices
+
+
     def forward(self, inputs, rel_rec, rel_send):
+        """
+        Inspired by https://gist.github.com/ncullen93/58e71c4303b89e420bd8e0b0aa54bf48
+
+        # Inputs shape: [batch_size, num_atoms, num_timesteps, num_features]
+        # Inputs Dtype: torch.Cuda.FloatTensors()
         # Calculate correlation matrix for each sample
+
         # Covariance Matrix
+        # Cov = ((X-meanX)(X-meanX)^T)/(n-1)
+        """
+        # Reshape inputs: to [num_samples, num_atoms, num_timesteps]
+        inputs = inputs.contiguous()
+        inputs = inputs.view(inputs.size(0), inputs.size(1), -1)
+        # print("Reshaped inputs shape: ", inputs.shape)
 
-        # Normalize to get correlation matrix
+        """
+        # Compute Covariance Matrix: Cov =  (1/(n-1))*(XX^T)
+        # with fact = 1/(n-1)
+        # inputs = (inputs - mean_inputs)
+        # inputs_t = inputs^T
+        """
+        # Compute Factor: 1/(n-1) with n=num_observations
+        fact = 1.0 / (inputs.size(2) - 1)
 
-        # Thresholding
+        # Compute Mean over num_atoms
+        # inputs Shape: [num_samples, num_atoms, num_timesteps] - after applying torch.mean
+        inputs -= torch.mean(inputs, dim=1, keepdim=True)
 
-        # Remove diagonal entries
+        # Compute transpose: resulting in shape [num_samples, num_timesteps, num_atoms]
+        inputs_t = torch.transpose(inputs, 1, 2)
 
-        # m = [atoms * atoms]
-        # indices = get_offdiag_indices(n_atoms):
-        # m[:, indices]
+        # Compute covariance per sample
+        # Covariance Shape: [num_samples, num_atoms, num_atoms]
+        covariance = fact * inputs.matmul(inputs_t).squeeze()
 
-        # [n_samples, n_atoms * (n_atoms - 1)]
-        return None
+        """
+        # Compute Correlation Matrix: normalize covariance matrix
+        #    Get diagonals of 2D surface of batch
+        #    https://discuss.pytorch.org/t/how-to-compute-the-diagonal-matrix-in-batch/35449  
+        """
+        # Diagonals of Covariance Matrix: Shape[num_samples, num_atoms]
+        d = torch.diagonal(covariance, dim1=-2, dim2=-1)
+
+        # Compute stddev: Shape [num_samples, num_atoms]
+        stddev = torch.pow(d, 0.5)
+        # Reshape stddev: Shape [num_samples, num_atoms, 1]
+        stddev = stddev.view(stddev.size(0), stddev.size(1), 1)
+
+        # Compute Correlation Matrix: Shape [num_samples, num_atoms, num_atoms]
+        covariance = covariance.div(stddev.expand_as(covariance))
+        correlation = covariance.div(stddev.expand_as(covariance).transpose(dim0=1, dim1=2))
+
+        '''
+        # Thresholding: Due to num_edge_types=2
+
+        '''
+        # Define tensors with shape: [num_samples, num_atoms, num_atoms]
+        zeros = torch.zeros(covariance.size(0), covariance.size(1), covariance.size(2)).to(inputs.device)
+        ones = torch.ones(covariance.size(0), covariance.size(1), covariance.size(2)).to(inputs.device)
+        # Define the threshold = 0
+        threshold = torch.zeros(covariance.size(0), covariance.size(1), covariance.size(2)).to(inputs.device)
+
+        # threshold = threshold.new_full((covariance.size(0), covariance.size(1), covariance.size(2)), fill_value=0)
+        # print("threshold matrix", threshold)
+        # thres_corr = torch.where((covariance>0),
+        # torch.zeros(covariance.size(0), covariance.size(1), covariance.size(2)).cuda(),
+        # torch.ones(covariance.size(0), covariance.size(1), covariance.size(2)).cuda())
+
+        # Apply threshold: If covariance > threshold then zero, otherwise one
+        # Thresh_corr shape [num_samples, num_atoms, num_atoms]
+        thres_corr = torch.where((correlation < threshold), zeros, ones)
+        # Reshape of thres_corr to shape: [num_samples, num_atoms*num_atoms]
+        thres_corr = thres_corr.view(thres_corr.size(0), -1)
+
+        """
+        Generate reverse corr Matrix
+
+        """
+        # thres_corr_rev Shape: [num_samples, num_atoms, num_atoms]
+        # thres_corr_rev = torch.where((correlation > threshold), zeros, ones)
+        # Reshape of thres_corr_rev to shape: [num_samples, num_atoms*num_atoms]
+        # thres_corr_rev = thres_corr_rev.view(thres_corr_rev.size(0), -1)
+
+        """
+        # Slice Correlation Matrix:
+        # Discard Diagonals - due to self-loop between nodes is desireable
+        """
+        # Get off-diagonal indices: self.get_offdiag_indices(num_atoms)
+        # Indices Shape: [num_indices]
+        indices = self.get_offdiag_indices(correlation.size(1))
+
+        # Corr Shape: [num_samples, num_atoms*(num_atoms-1)]
+        corr = thres_corr[:, indices]
+        # Corr_rev Shape: [num_samples, num_atoms*(num_atoms-1)]
+        # corr_rev = thres_corr_rev[:, indices]
+
+        '''
+        Add new dimension for edge_type
+        '''
+        # corr_output Shape: [num_samples, 1, num_atoms*(num_atoms-1)]
+        corr_output = corr.unsqueeze(1)
+        # corr_rev_output = corr_rev.unsqueeze(1)
+
+        """
+        Concatenate Thresholded and sliced correlation with its reverse. 
+
+        # Output Shape: [num_samples, num_edge_types, num_atoms*(num_atoms-1)]
+        output = torch.cat((corr_output, corr_rev_output), 1)
+
+        print("Concatenated output shape", output.shape)
+        """
+
+        # Output Shape: [num_samples, num_edge_types, num_atoms*(num_atoms-1)]
+        return corr_output
 
 
 class CNNEncoder(nn.Module):
