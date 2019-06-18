@@ -141,11 +141,7 @@ def load_models(enc: torch.nn.Module, dec: torch.nn.Module, config: dict):
     models_path = config['training']['load_path']
     path = Path(models_path).parent / "models"
 
-    # Find different models for each epoch
-    max_epoch = -1
-    for f in os.listdir(path):
-        epoch = int(f.split("_epoch")[-1].split(".pt")[0])
-        max_epoch = max(epoch, max_epoch)
+    max_epoch = find_latest_checkpoint(path)
 
     if max_epoch == -1:
         raise FileNotFoundError(f"No models found under {models_path}")
@@ -158,6 +154,25 @@ def load_models(enc: torch.nn.Module, dec: torch.nn.Module, config: dict):
     return enc, dec
 
 
+def find_latest_checkpoint(path):
+    """
+    Looks for all .pt files in the folder and returns the highest seen epoch
+    :param path: Path to folder where models are stored
+    :return: epoch as int
+    """
+
+    max_epoch = -1
+    for f in os.listdir(path):
+
+        # Skip if not a saved model
+        if not f.endswith(".pt") or "_epoch" not in f:
+            continue
+
+        epoch = int(f.split("_epoch")[-1].split(".pt")[0])
+        max_epoch = max(epoch, max_epoch)
+    return max_epoch
+
+
 def load_weights(model, path):
     model.load_state_dict(torch.load(path))
 
@@ -168,3 +183,41 @@ def nll():
 
 def kl():
     pass
+
+
+def edges_to_adj(edges, n_atoms):
+    n_samples = edges.size(0)
+    indices = get_offdiag_indices(n_atoms)
+    n_edge_types = edges.size(-1)
+
+    graphs = np.empty((n_samples, n_edge_types, n_atoms, n_atoms))
+
+    for sample in range(n_samples):
+        for edge_type in range(n_edge_types):
+            graph = edges[sample, :, edge_type]
+            fully_connected = torch.zeros(n_atoms * n_atoms)
+            fully_connected[indices] = graph
+            adjacency_matrix = fully_connected.view(n_atoms, n_atoms).detach().numpy()
+            graphs[sample, edge_type, :, :] = adjacency_matrix
+
+    return graphs
+
+
+def id_2_loc(i):
+    """
+    Remove when real function is provided
+    :param i:
+    :return:
+    """
+    lat = np.random.rand() * 8 + 36
+    lon = np.random.rand() * 8 - 3.9
+    return (lon, lat)
+
+
+def get_offdiag_indices(num_nodes):
+    """Linear off-diagonal indices."""
+    ones = torch.ones(num_nodes, num_nodes)
+    eye = torch.eye(num_nodes, num_nodes)
+    offdiag_indices = (ones - eye).nonzero().t()
+    offdiag_indices = offdiag_indices[0] * num_nodes + offdiag_indices[1]
+    return offdiag_indices
