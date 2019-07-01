@@ -4,13 +4,13 @@ import numpy as np
 
 
 def cosine_dist(v1, v2):
-    return 1 - (v1 @ v2)/(np.linalg.norm(v1) * np.linalg.norm(v2))
+    return 1.0 - (v1 @ v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
 
 
 def cosine_signature(X, b, r):
     N, D = X.shape
-    random_projections = np.random.multivariate_normal(mean=np.zeros(D), cov=np.eye(D), size=b*r)
-    hash_transform = lambda x: (x>=0).astype(np.int32) * 2 - 1
+    random_projections = np.random.multivariate_normal(mean=np.zeros(D), cov=np.eye(D), size=b * r)
+    hash_transform = lambda x: (x >= 0).astype(np.int32) * 2 - 1
 
     return hash_transform(random_projections @ X.T)
 
@@ -29,16 +29,16 @@ def dot_product(v1, v2):
 
 def dot_signature(X, b, r):
     N, D = X.shape
-    normalized = X/np.linalg.norm(X, axis=1).max()
+    normalized = X / np.linalg.norm(X, axis=1).max()
     augment_col = np.sqrt(1 - np.linalg.norm(normalized, axis=1))[np.newaxis].T
     augmented = np.concatenate((normalized, augment_col), axis=1)
-    random_vectors = np.random.multivariate_normal(mean=np.zeros(D+1), cov=np.eye(D+1), size=b*r)
+    random_vectors = np.random.multivariate_normal(mean=np.zeros(D + 1), cov=np.eye(D + 1), size=b * r)
 
-    hash_transform = lambda x: (x>=0).astype(np.int32) * 2 - 1
+    hash_transform = lambda x: (x >= 0).astype(np.int32) * 2 - 1
     return hash_transform(random_vectors @ augmented.T)
 
 
-def LSH(X, b=8, r=32, d=0.3, dist_func = 'cosine'):
+def LSH(X, b=8, r=32, d=0.3, dist_func='cosine'):
     """Find candidate duplicate pairs using LSH and refine using exact cosine distance.
 
     Parameters
@@ -50,7 +50,7 @@ def LSH(X, b=8, r=32, d=0.3, dist_func = 'cosine'):
     r : int
         Number of rows per band.
     d : float
-        Distance treshold for reporting duplicates.
+        Distance threshold for reporting duplicates.
     dist_func: str
         Which distance function to use, from ['cosine', 'euclidean', 'dot']
 
@@ -61,7 +61,7 @@ def LSH(X, b=8, r=32, d=0.3, dist_func = 'cosine'):
         Each tuple should have 3 elements:
             * ID of the first song
             * ID of the second song
-            * The cosine distance between them
+            * The cosine distance between them #TODO
 
     n_candidates : int
         Number of detected candidate pairs.
@@ -93,7 +93,7 @@ def LSH(X, b=8, r=32, d=0.3, dist_func = 'cosine'):
         hashes = defaultdict(list)
 
         ix = band * r
-        band_matrix = signature_matrix[ix : ix+r]
+        band_matrix = signature_matrix[ix: ix + r]
         band_matrix = band_matrix == band_matrix[0, :]
 
         for i in range(N):
@@ -106,7 +106,7 @@ def LSH(X, b=8, r=32, d=0.3, dist_func = 'cosine'):
             for i in range(len(dups)):
                 n1 = dups[i]
 
-                for j in range(i+1, len(dups)):
+                for j in range(i + 1, len(dups)):
                     n2 = dups[j]
                     n_candidates += 1
 
@@ -114,6 +114,5 @@ def LSH(X, b=8, r=32, d=0.3, dist_func = 'cosine'):
 
                     if real_dist < d:
                         duplicates.add((dups[i], dups[j], real_dist))
-
 
     return duplicates, n_candidates

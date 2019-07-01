@@ -1,11 +1,10 @@
-import os.path as osp
 import argparse
-from math import inf
+import os.path as osp
 
 import torch
 import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid
-from torch_geometric.nn import GCNConv, GAE, VGAE
+from torch_geometric.nn import GAE, VGAE
 
 from graph.modules import Encoder
 
@@ -44,13 +43,13 @@ def create_decoder(args):
     return decoder
 
 
-
 def load_data(args):
     """
     Handling loading and preprocessing of data
     :param args:
     :return:
     """
+    # add redit lukas
     path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', args.dataset)
     # Initialize Data Set
     dataset = Planetoid(path, args.dataset, T.NormalizeFeatures())
@@ -99,7 +98,7 @@ def run_experiment(args):
     """
     Data loading logic
     """
-    # Unsupervised
+    # Unsupervised # TODO See if necessary or why
     data.train_mask = data.val_mask = data.test_mask = data.y = None
 
     data = model.split_edges(data)
@@ -148,16 +147,15 @@ def run_experiment(args):
     logs = []
     for epoch in range(1, args.epochs):
         # Perform training for epoch
-        log= train_epoch(epoch)
+        log = train_epoch(epoch)
         logs.append(log)
         # Evaulate model
         auc, ap = test(data.test_pos_edge_index, data.test_neg_edge_index)
         print('Epoch: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, auc, ap))
 
-
-        """
+        """ TODO: Do based on validation set
         Early Stopping Logic
-        """
+        
         best_train_loss = inf
 
         did_improve = log["loss"] <= best_train_loss
@@ -173,10 +171,7 @@ def run_experiment(args):
         if args.use_early_stopping and not_improved_count > args.early_stopping_patience:
             print("Model did not improve")
             break
-
-
-
-
+        """
 
 
 if __name__ == '__main__':
@@ -201,7 +196,6 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='VGAE', help="Specify Model Type")
     parser.add_argument('--lsh', action='store_true', default=False, help="Use Local-Sensitivity-Hashing")
     parser.add_argument('--decoder', type=str, default='IP', help="Specify Decoder Type")
-
 
     args = parser.parse_args()
     # Asserts

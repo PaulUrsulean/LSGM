@@ -1,5 +1,4 @@
 import torch
-import torch.nn.functional as F
 from torch.nn import functional as F
 from torch_geometric.nn import GCNConv
 
@@ -44,6 +43,13 @@ class CosineSimDecoder(torch.nn.Module):
         z = _norm_batch(z)
         values = torch.mm(z, z.t())
         return torch.sigmoid(values) if sigmoid else values
+
+
+class CosineSimHashDecoder(CosineSimDecoder):
+    def forward_all(self, z, edge_index, sigmoid=True):
+        # pairs = lsh...
+        # matrix = pairs to matrix
+        raise NotImplementedError()
 
 
 class EuclideanDistanceDecoder(torch.nn.Module):
