@@ -7,7 +7,7 @@ import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import GCNConv, GAE, VGAE
 
-from modules import Encoder
+from graph.modules import Encoder
 
 
 def create_encoder(num_features, channels, args):
