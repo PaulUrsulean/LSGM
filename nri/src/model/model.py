@@ -9,15 +9,14 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch import Tensor
 from torch.autograd import Variable
 from torch.nn import DataParallel
 from torch.nn.utils import clip_grad_value_
 
-from src.logger import WriterTensorboardX, setup_logging
-from src.model import losses
-from src.model.modules import RNNDecoder
-from src.model.utils import gen_fully_connected, my_softmax, nll, kl, load_models, gumbel_softmax
+from nri.src import WriterTensorboardX, setup_logging
+from model import losses
+from nri.src import RNNDecoder
+from nri.src import gen_fully_connected, my_softmax, nll, kl, load_models, gumbel_softmax
 
 
 class Model:

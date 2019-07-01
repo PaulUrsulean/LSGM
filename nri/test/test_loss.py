@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-import src.model.losses as losses
+import model.losses as losses
 
 
 class TestLoss(unittest.TestCase):

@@ -23,7 +23,7 @@ SOFTWARE.
 """
 
 import importlib
-from src.logger.utils import Timer
+from logger.utils import Timer
 
 
 class WriterTensorboardX():

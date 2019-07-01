@@ -1,9 +1,9 @@
 import unittest
 
-from src.config_parser import generate_config
-from src.data_loaders.loaders import load_random_data
-from src.model import Model, MLPDecoder
-from src.model.modules import MLPEncoder, RNNDecoder
+from config_parser import generate_config
+from nri.src import load_random_data
+from nri.src import Model, MLPDecoder
+from nri.src import MLPEncoder, RNNDecoder
 
 
 class MyTestCase(unittest.TestCase):
