@@ -6,7 +6,7 @@ from functools import reduce
 from operator import getitem
 from pathlib import Path
 
-from src.config import _default_config
+from nri.src import _default_config
 
 
 def read_json(fname, object_hook=OrderedDict):

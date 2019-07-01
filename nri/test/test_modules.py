@@ -2,8 +2,7 @@ import unittest
 
 import torch
 
-from src.model import modules
-from src.model import utils as go
+from model import utils as go, modules
 
 
 class MLPModuleTests(unittest.TestCase):

@@ -5,11 +5,11 @@ from os.path import join
 import numpy as np
 import torch.nn
 
-from src.config_parser import ConfigParser, options
-from src.data_loaders.loaders import load_spring_data, load_random_data, load_weather_data, load_weather_data_raw
-from src.model import MLPDecoder, RNNDecoder, MLPEncoder, CNNEncoder
-from src.model.model import Model
-from src.model.utils import load_models
+from config_parser import ConfigParser, options
+from nri.src import load_spring_data, load_random_data, load_weather_data_raw
+from nri.src import MLPDecoder, RNNDecoder, MLPEncoder, CNNEncoder
+from model.model import Model
+from nri.src import load_models
 
 
 def create_decoder(config):

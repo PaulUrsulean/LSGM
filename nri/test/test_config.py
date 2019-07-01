@@ -1,11 +1,9 @@
-import os
 import unittest
 import argparse
-from pathlib import Path
 
-import src.config_parser as config_parser
-from src.config_parser import ConfigParser, read_json, generate_config
-from src.config import _default_config
+import config_parser as config_parser
+from config_parser import ConfigParser, read_json, generate_config
+from nri.src import _default_config
 
 
 class TestConfigParser(unittest.TestCase):

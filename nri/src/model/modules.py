@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-from src.model.utils import node2edge, edge2node, gen_fully_connected, my_softmax
+from nri.src import node2edge, edge2node, gen_fully_connected, my_softmax
 
 
 class MLP(nn.Module):
