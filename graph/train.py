@@ -6,7 +6,7 @@ import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import GAE, VGAE
 
-from graph.modules import Encoder
+from modules import Encoder
 
 
 def create_encoder(num_features, channels, args):
@@ -18,7 +18,6 @@ def create_encoder(num_features, channels, args):
     :return:
     """
     encoder = Encoder(num_features, channels, args)
-
     return encoder
 
 
@@ -27,6 +26,7 @@ def create_decoder(args):
     Creates Decoder part of Model e.g. Inner-Product;cosine; euclidean-dist
     :return:
     """
+    # Todo: incorporate additional decoders
     if args.decoder == "IP":
         """
         Inner-Product Decoder: 
@@ -49,7 +49,7 @@ def load_data(args):
     :param args:
     :return:
     """
-    # add redit lukas
+    # ToDo: Add other datasets e.g. reddit
     path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', args.dataset)
     # Initialize Data Set
     dataset = Planetoid(path, args.dataset, T.NormalizeFeatures())
@@ -72,45 +72,50 @@ def run_experiment(args):
     # Todo: change specification of data set maybe without args
     """
     dataset, data = load_data(args)
-
     channels = 16
     """
     Device specification
     # Todo: change specification of gpu assignment
     """
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Todo: check for available cuda
     # assert (torch.cuda.is_available() is False, "Cuda not available - running on gpu")
-
     """
     Creating model components
     # To do: add components in specific function
     """
     encoder = create_encoder(dataset.num_features, channels, args)
     decoder = create_decoder(args)
-
     """
-    Creating model: GAE or VGAE
+    Creating model: GAE or VGAE (by default)
     # Todo: change logic
     """
     model = kwargs[args.model](encoder=encoder, decoder=decoder).to(dev)
-
-    print("Created Model", model)
+    print("Creating Model", model)
     """
     Data loading logic
     """
-    # Unsupervised # TODO See if necessary or why
+    # TODO See if necessary or why
     data.train_mask = data.val_mask = data.test_mask = data.y = None
 
+    """
+    Generate data set splits
+    """
+    # splits edges of a torch_geometric.data.Data object into pos negative train/val/test edges
+    # default ratios of positive edges: val_ratio=0.05, test_ratio=0.1
     data = model.split_edges(data)
+
+    # Train data set
     x, train_pos_edge_index = data.x.to(dev), data.train_pos_edge_index.to(dev)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
     def train_epoch(epoch):
         """
-        Train logic for one epoch
-        :return:
+        Performing training over a single epoch and optimize over loss
+        :return: log - loss of training loss
         """
         # Todo: Add logging of results
+
         model.train()
         optimizer.zero_grad()
         # Compute latent variable
@@ -123,20 +128,28 @@ def run_experiment(args):
         if args.model in ['VGAE']:
             # VGAE.kl_loss:
             loss = loss + (1 / data.num_nodes) * model.kl_loss()
+
+        # Compute gradients
         loss.backward()
+        # Perform optimization step
         optimizer.step()
+
         print("Train-Epoch: {} Loss: {}".format(epoch, loss))
 
+        # ToDo: Add logging via Tensorboard
         log = {
             'loss': loss
         }
+
         return log
 
     def test(pos_edge_index, neg_edge_index):
         model.eval()
         with torch.no_grad():
+            # compute latent var
             z = model.encode(x, train_pos_edge_index)
 
+        # model.test return - AUC, AP
         return model.test(z, pos_edge_index, neg_edge_index)
 
     """
@@ -149,11 +162,16 @@ def run_experiment(args):
         # Perform training for epoch
         log = train_epoch(epoch)
         logs.append(log)
-        # Evaulate model
-        auc, ap = test(data.test_pos_edge_index, data.test_neg_edge_index)
-        print('Epoch: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, auc, ap))
 
-        """ TODO: Do based on validation set
+        # Evaluate model on val
+        val_auc, val_ap = test(data.val_pos_edge_index, data.val_neg_edge_index)
+        print('Validation-Epoch: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, val_auc, val_ap))
+
+    # Evaulate model on test
+    test_auc, test_ap = test(data.test_pos_edge_index, data.test_neg_edge_index)
+    print('Test-Epoch: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, test_auc, test_ap))
+
+    """ TODO: Do based on validation set
         Early Stopping Logic
         
         best_train_loss = inf
@@ -171,7 +189,7 @@ def run_experiment(args):
         if args.use_early_stopping and not_improved_count > args.early_stopping_patience:
             print("Model did not improve")
             break
-        """
+    """
 
 
 if __name__ == '__main__':
@@ -198,7 +216,7 @@ if __name__ == '__main__':
     parser.add_argument('--decoder', type=str, default='IP', help="Specify Decoder Type")
 
     args = parser.parse_args()
-    # Asserts
+
     assert args.model in ['GAE', 'VGAE']
     assert args.dataset in ['Cora', 'CiteSeer', 'PubMed']
     kwargs = {'GAE': GAE, 'VGAE': VGAE}
