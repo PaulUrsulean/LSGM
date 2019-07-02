@@ -41,7 +41,7 @@ class CosineSimDecoder(torch.nn.Module):
         value = F.cosine_similarity(a, b, dim=1)
         return torch.sigmoid(value) if sigmoid else value
 
-    def forward_all(self, z, edge_index, sigmoid=True):
+    def forward_all(self, z, sigmoid=True):
         """
         Calculates the cosine similarity only for two nodes' connection
         :param z: Latent space Z, tensor of shape [n_nodes, n_embed_dim]
@@ -55,8 +55,8 @@ class CosineSimDecoder(torch.nn.Module):
 
 
 class CosineSimHashDecoder(CosineSimDecoder):
-    def forward_all(self, z, edge_index, sigmoid=True, d=0.25):
-        pairs, _ = LSH(z, d=d, r=8, b=64)
+    def forward_all(self, z, sigmoid=True, d=0.25):
+        pairs, _ = LSH(z.detach().cpu(), d=d, r=8, b=64)
 
         # DOK type sparse matrix has efficient changing of sparse structure
         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
@@ -91,7 +91,7 @@ class EuclideanDistanceDecoder(torch.nn.Module):
         value = 1.0 - distance
         return torch.sigmoid(value) if sigmoid else value
 
-    def forward_all(self, z, edge_index, sigmoid=True, normalize=True):
+    def forward_all(self, z, sigmoid=True, normalize=True):
         if normalize:
             z = _norm_batch(z)
 
@@ -103,7 +103,7 @@ class EuclideanDistanceDecoder(torch.nn.Module):
 
 
 class EuclideanDistanceHashDecoder(EuclideanDistanceDecoder):
-    def forward_all(self, z, edge_index, sigmoid=True, d=0.25):
+    def forward_all(self, z, sigmoid=True, d=0.25):
 
         # Sample to get an idea of the distance to filter for
 
@@ -141,7 +141,7 @@ class EuclideanDistanceHashDecoder(EuclideanDistanceDecoder):
 
 
 class InnerProductHashDecoder(InnerProductDecoder):
-    def forward_all(self, z, edge_index, sigmoid=True, d=0.25, debug=False):
+    def forward_all(self, z, sigmoid=True, d=0.25, debug=False):
 
         sample_ix = np.random.choice(np.arange(len(z)), replace=False, size=min(10, len(z)))
         assert len(sample_ix) >= 2, "Not enough nodes to sample"
@@ -154,9 +154,9 @@ class InnerProductHashDecoder(InnerProductDecoder):
                 sample_distances.append(sample[i] @ sample[j])
 
         # This is done in order to tackle the problem of unnormalized distance measures
-        dist = (min(sample_distances) + d * (max(sample_distances) - min(sample_distances))).numpy()
+        dist = (min(sample_distances) + d * (max(sample_distances) - min(sample_distances))).detach().cpu().numpy()
 
-        pairs, _ = LSH(z, d=dist, dist_func='dot', b=32, r=8)
+        pairs, _ = LSH(z.detach().cpu(), d=dist, dist_func='dot', b=32, r=8)
 
         # DOK type sparse matrix has efficient changing of sparse structure
         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
