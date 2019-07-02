@@ -1,15 +1,15 @@
+import sys
+from os.path import dirname, abspath
+
+import scipy.sparse as sparse
 import torch
 from torch.nn import functional as F
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GCNConv, InnerProductDecoder
 from torch_geometric.nn.models.autoencoder import InnerProductDecoder
-import scipy.sparse as sparse
-from scipy.special import expit
 
-from os.path import dirname, abspath
-import sys
 sys.path.append(dirname(abspath(__file__)))
 from operator import itemgetter
-from lsh import *
+from graph.lsh import *
 
 
 def _norm_batch(batch):
@@ -57,12 +57,12 @@ class CosineSimDecoder(torch.nn.Module):
 class CosineSimHashDecoder(CosineSimDecoder):
     def forward_all(self, z, edge_index, sigmoid=True, d=0.25):
         pairs, _ = LSH(z, d=d, r=8, b=64)
-        
-        #DOK type sparse matrix has efficient changing of sparse structure
+
+        # DOK type sparse matrix has efficient changing of sparse structure
         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
-        
+
         for v1, v2, d in pairs:
-            adjacency[v1,v2] = adjacency[v2, v1] = 1-d if sigmoid else 1
+            adjacency[v1, v2] = adjacency[v2, v1] = 1 - d if sigmoid else 1
 
         return DOK_to_torch(adjacency)
 
@@ -100,97 +100,104 @@ class EuclideanDistanceDecoder(torch.nn.Module):
         # to right shape might be faster
         values = 1.0 - torch.norm(z[:, None] - z, dim=2, p=2)
         return torch.sigmoid(values) if sigmoid else values
-    
+
+
 class EuclideanDistanceHashDecoder(EuclideanDistanceDecoder):
     def forward_all(self, z, edge_index, sigmoid=True, d=0.25):
-        
+
         # Sample to get an idea of the distance to filter for
-        
+
         sample_ix = np.random.choice(np.arange(len(z)), replace=False, size=min(10, len(z)))
         assert len(sample_ix) >= 2, "Not enough nodes to sample"
         sample = z[sample_ix]
-        
+
         sample_distances = []
-        
+
         for i in range(len(sample)):
-            for j in range(i+1, len(sample)):
+            for j in range(i + 1, len(sample)):
                 sample_distances.append(np.linalg.norm(sample[i] - sample[j]))
-                
+
         # This is done in order to tackle the problem of unnormalized distance measures
-        dist = min(sample_distances) + d*(max(sample_distances) - min(sample_distances))
-        
-        pairs, _ = LSH(z, d=dist, dist_func = 'euclidean')
-        
+        dist = min(sample_distances) + d * (max(sample_distances) - min(sample_distances))
+
+        pairs, _ = LSH(z, d=dist, dist_func='euclidean')
+
         # DOK type sparse matrix has efficient changing of sparse structure
         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
-        
+
         # DOK matrices can be given a batch of updates via _update
         sparse_indices = dict()
-        
+
         # Have to iterate twice in order to be able to return sigmoid-like values
         # since Euclidean distance is in the range [0, inf)
         max_dist = max(pairs, key=itemgetter(2))[2]
-            
+
         for v1, v2, d in pairs:
-            sparse_indices[(v1,v2)] = sparse_indices[(v2, v1)] = 1-(d/max_dist) if sigmoid else 1
-            
+            sparse_indices[(v1, v2)] = sparse_indices[(v2, v1)] = 1 - (d / max_dist) if sigmoid else 1
+
         adjacency._update(sparse_indices)
 
         return DOK_to_torch(adjacency)
-    
+
+
 class InnerProductHashDecoder(InnerProductDecoder):
     def forward_all(self, z, edge_index, sigmoid=True, d=0.25, debug=False):
-        
+
         sample_ix = np.random.choice(np.arange(len(z)), replace=False, size=min(10, len(z)))
         assert len(sample_ix) >= 2, "Not enough nodes to sample"
         sample = z[sample_ix]
-        
+
         sample_distances = []
-        
+
         for i in range(len(sample)):
-            for j in range(i+1, len(sample)):
+            for j in range(i + 1, len(sample)):
                 sample_distances.append(sample[i] @ sample[j])
 
         # This is done in order to tackle the problem of unnormalized distance measures
-        dist = (min(sample_distances) + d*(max(sample_distances) - min(sample_distances))).numpy()
-                        
-        pairs, _ = LSH(z, d=dist, dist_func = 'dot', b=32, r=8)
-        
-        #DOK type sparse matrix has efficient changing of sparse structure
+        dist = (min(sample_distances) + d * (max(sample_distances) - min(sample_distances))).numpy()
+
+        pairs, _ = LSH(z, d=dist, dist_func='dot', b=32, r=8)
+
+        # DOK type sparse matrix has efficient changing of sparse structure
         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
-        
+
         # DOK matrices can be given a batch of updates via _update
         sparse_indices = dict()
-        
+
         max_dist = max(pairs, key=itemgetter(2))[2]
-                
+
         for v1, v2, d in pairs:
-            sparse_indices[(v1,v2)] = sparse_indices[(v2, v1)] = d/max_dist if sigmoid else 1
-            
+            sparse_indices[(v1, v2)] = sparse_indices[(v2, v1)] = d / max_dist if sigmoid else 1
+
         adjacency._update(sparse_indices)
 
         return DOK_to_torch(adjacency) if not debug else (DOK_to_torch(adjacency), dist)
 
 
-class Encoder(torch.nn.Module):
-
-    def __init__(self, in_channels, out_channels, args):
-        super(Encoder, self).__init__()
-        self.args = args
+class GAEEncoder(torch.nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(GAEEncoder, self).__init__()
         self.conv1 = GCNConv(in_channels, 2 * out_channels, cached=True)
-        if args.model in ['GAE']:
-            self.conv2 = GCNConv(2 * out_channels, out_channels, cached=True)
-        elif args.model in ['VGAE']:
-            self.conv_mu = GCNConv(2 * out_channels, out_channels, cached=True)
-            self.conv_logvar = GCNConv(
-                2 * out_channels, out_channels, cached=True)
+        self.conv2 = GCNConv(2 * out_channels, out_channels, cached=True)
 
     def forward(self, x, edge_index):
         x = F.relu(self.conv1(x, edge_index))
-        if self.args.model in ['GAE']:
-            return self.conv2(x, edge_index)
-        elif self.args.model in ['VGAE']:
-            return self.conv_mu(x, edge_index), self.conv_logvar(x, edge_index)
+        return self.conv2(x, edge_index)
+
+
+class VGAEEncoder(torch.nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super(VGAEEncoder, self).__init__()
+        self.conv1 = GCNConv(in_channels, 2 * out_channels, cached=True)
+        self.conv_mu = GCNConv(2 * out_channels, out_channels, cached=True)
+        self.conv_logvar = GCNConv(
+            2 * out_channels, out_channels, cached=True)
+
+    def forward(self, x, edge_index):
+        x = F.relu(self.conv1(x, edge_index))
+        return self.conv_mu(x, edge_index), self.conv_logvar(x, edge_index)
+
 
 def DOK_to_torch(X):
     assert type(X) == sparse.dok.dok_matrix
@@ -203,3 +210,27 @@ def DOK_to_torch(X):
     shape = coo.shape
 
     return torch.sparse.FloatTensor(i, v, torch.Size(shape))
+
+
+def create_decoder(name, use_lsh=False):
+    """
+    Returns desired decoder version and LSH-Version if required.
+    Available choices are ['dot', 'cosine', 'lsh']
+    :return: torch.nn.Module object with implemented forward and forward_all method
+    """
+    if name == "dot":
+        return InnerProductDecoder() if not use_lsh else InnerProductHashDecoder()
+    elif name == "cosine":
+        return CosineSimDecoder() if not use_lsh else CosineSimHashDecoder()
+    elif name == "l2":
+        return EuclideanDistanceDecoder() if not use_lsh else EuclideanDistanceHashDecoder()
+    else:
+        raise NotImplementedError(
+            f"Decoder with name {name} and {'' if use_lsh else 'non-'}LSH version not implemented.")
+
+
+def create_encoder(name, num_features, latent_dim):
+    if name == 'gae':
+        return GAEEncoder(num_features, latent_dim)
+    else:
+        return VGAEEncoder(num_features, latent_dim)
