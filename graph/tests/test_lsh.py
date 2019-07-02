@@ -46,7 +46,7 @@ class TestLSH(unittest.TestCase):
         
         n_eligible = (np.array(distances) < test_dist).sum()
         
-        closest_pairs, _ = LSH(emb_numpy, d=test_dist, dist_func = 'cosine', r=8, b=64)
+        closest_pairs, _ = LSH(emb_numpy, d=test_dist, dist_func = 'cosine', r=8, b=64, use_tensors=False)
         
         print("Cosine sim pairs generated: {} from {} total, with {} distance".format(len(closest_pairs), n_eligible, test_dist))
         
@@ -70,7 +70,7 @@ class TestLSH(unittest.TestCase):
         
         n_eligible = (np.array(distances) < test_dist).sum()
         
-        closest_pairs, _ = LSH(emb_numpy, d=test_dist, dist_func = 'euclidean')
+        closest_pairs, _ = LSH(emb_numpy, d=test_dist, dist_func = 'euclidean', use_tensors=False)
         
         print("Euclidean sim pairs generated: {} from {} total, with {} distance".format(len(closest_pairs), n_eligible, test_dist))
         
@@ -92,14 +92,14 @@ class TestLSH(unittest.TestCase):
                                 
         test_dist = (max(distances) + min(distances)) / 2
         
-        n_eligible = (np.array(distances) < test_dist).sum()
+        n_eligible = (np.array(distances) > test_dist).sum()
         
-        closest_pairs, _ = LSH(emb_numpy, d=test_dist, dist_func = 'dot', b=32, r=8)
+        closest_pairs, _ = LSH(emb_numpy, d=test_dist, dist_func = 'dot', use_tensors=False, b=32, r=8)
         
         print("Dot prod sim pairs generated: {} from {} total, with {} distance".format(len(closest_pairs), n_eligible, test_dist))
         
         for v1, v2, d in closest_pairs:
-            self.assertLessEqual(euclidean(emb_numpy[v1], emb_numpy[v2]), test_dist)
+            self.assertGreaterEqual(emb_numpy[v1] @ emb_numpy[v2], test_dist)
 
 
 if __name__ == '__main__':
