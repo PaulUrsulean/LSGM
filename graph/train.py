@@ -135,7 +135,7 @@ def run_experiment(args):
         # Perform optimization step
         optimizer.step()
 
-        print("Train-Epoch: {} Loss: {}".format(epoch, loss))
+        # print("Train-Epoch: {} Loss: {}".format(epoch, loss))
 
         # ToDo: Add logging via Tensorboard
         log = {
@@ -225,14 +225,14 @@ if __name__ == '__main__':
     # Todo: change parameter parsing
     parser = argparse.ArgumentParser()
     # Dataset
-    parser.add_argument('--dataset', type=str, default='Cora', help="Data Set Name")
+    parser.add_argument('--dataset', type=str, default='PubMed', help="Data Set Name")
 
     # Training
-    parser.add_argument('--epochs', type=int, default=400, help="Number of Epochs in Training")
+    parser.add_argument('--epochs', type=int, default=500, help="Number of Epochs in Training")
     parser.add_argument('--lr', type=int, default=0.001, help="Learning Rate")
     # Early Stopping
     parser.add_argument('--use_early_stopping', default="True")
-    parser.add_argument('--early_stopping_patience', type=int, default=20)
+    parser.add_argument('--early_stopping_patience', type=int, default=100)
 
     # Model Specific
     parser.add_argument('--model', type=str, default='VGAE', help="Specify Model Type")
