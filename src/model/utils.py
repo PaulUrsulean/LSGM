@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from collections import defaultdict
 
 import numpy as np
 import torch
@@ -222,24 +223,31 @@ def get_offdiag_indices(num_nodes):
     offdiag_indices = offdiag_indices[0] * num_nodes + offdiag_indices[1]
     return offdiag_indices
 
+
 def cosine_dist(v1, v2):
     return 1 - (v1 @ v2)/(np.linalg.norm(v1) * np.linalg.norm(v2))
-
-def cosine_signature(X, b, r):
-    N, D = X.shape
-    random_projections = np.random.multivariate_normal(mean=np.zeros(D), cov=np.eye(D), size=b*r)
-    hash_transform = lambda x: (x>=0).astype(np.int32) * 2 - 1
-    
-    return hash_transform(random_projections @ X.T)
 
 def euclidean_dist(v1, v2):
     return np.linalg.norm(v1 - v2)
 
-def euclidean_signature(X, b, r):
-    raise NotImplementedError
-
 def dot_product(v1, v2):
     return v1 @ v2
+
+
+def cosine_signature(X, b, r):
+    N, D = X.shape
+    random_projections = np.random.multivariate_normal(mean=np.zeros(D), cov=np.eye(D), size=b*r)
+    
+    hash_transform = lambda x: (x>=0).astype(np.int32) * 2 - 1
+    return hash_transform(random_projections @ X.T)
+
+def euclidean_signature(X, b, r, w=1):
+    N, D = X.shape
+    random_projections = np.random.multivariate_normal(mean=np.zeros(D), cov=np.eye(D), size=b*r)
+    bias = np.random.uniform(0, w, size=b*r)
+    
+    hash_transform = lambda x: np.floor(x)
+    return hash_transform((random_projections @ X.T + bias[np.newaxis].T) / w)
 
 def dot_signature(X, b, r):
     N, D = X.shape
@@ -250,6 +258,7 @@ def dot_signature(X, b, r):
     
     hash_transform = lambda x: (x>=0).astype(np.int32) * 2 - 1
     return hash_transform(random_vectors @ augmented.T)
+
 
 def LSH(X, b=8, r=32, d=0.3, dist_func = 'cosine'):
     """Find candidate duplicate pairs using LSH and refine using exact cosine distance.
