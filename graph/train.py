@@ -7,6 +7,7 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import GAE, VGAE
 
 from modules import Encoder
+from early_stopping import EarlyStopping
 
 
 def create_encoder(num_features, channels, args):
@@ -156,18 +157,41 @@ def run_experiment(args):
     Train Logic
     # Todo: customable parameters
     """
+    # Initialize early-stopping object
+    early_stopping = EarlyStopping(patience=args.early_stopping_patience, verbose=True)
     # Create list for logging metrices
     logs = []
+
     for epoch in range(1, args.epochs):
-        # Perform training for epoch
+        """
+        Training of model
+        """
         log = train_epoch(epoch)
         logs.append(log)
 
+        """
+        Validation of model
+        """
         # Evaluate model on val
         val_auc, val_ap = test(data.val_pos_edge_index, data.val_neg_edge_index)
         print('Validation-Epoch: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, val_auc, val_ap))
 
-    # Evaulate model on test
+        """
+        Early stopping
+        """
+        early_stopping(val_ap, model)
+
+        if early_stopping.early_stop:
+            print("Apply early-stopping")
+            break
+
+        #if early_stopping.early_stop:
+
+
+
+    """
+    Testing the model
+    """
     test_auc, test_ap = test(data.test_pos_edge_index, data.test_neg_edge_index)
     print('Test-Epoch: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, test_auc, test_ap))
 
