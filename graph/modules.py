@@ -3,13 +3,11 @@ from os.path import dirname, abspath
 
 import scipy.sparse as sparse
 from scipy.special import expit
-import torch
 from torch.nn import functional as F
-from torch_geometric.nn import GCNConv, InnerProductDecoder
+from torch_geometric.nn import GCNConv
 from torch_geometric.nn.models.autoencoder import InnerProductDecoder
 
 sys.path.append(dirname(abspath(__file__)))
-from operator import itemgetter
 from graph.lsh import *
 
 
@@ -20,7 +18,7 @@ def _norm_batch(batch):
     :return:
     """
     assert len(batch.size()) >= 2, "Needs tensor with dimensions >= 2"
-    return batch / batch.norm(dim=1)[:,None]
+    return batch / batch.norm(dim=1)[:, None]
 
 
 class CosineSimDecoder(torch.nn.Module):
@@ -40,9 +38,7 @@ class CosineSimDecoder(torch.nn.Module):
         """
         a, b = z[edge_index[0]], z[edge_index[1]]
         value = F.cosine_similarity(a, b, dim=1)
-        
-        # Normalize similarities to [0, 1]
-        return (1 + value)/2 if sigmoid else value
+        return torch.sigmoid(value) if sigmoid else value
 
     def forward_all(self, z, sigmoid=True):
         """
@@ -54,32 +50,30 @@ class CosineSimDecoder(torch.nn.Module):
         """
         z = _norm_batch(z)
         values = torch.mm(z, z.t())
-        
-        # Normalize similarities to [0, 1]
-        return (1 + values)/2 if sigmoid else values
+        return torch.sigmoid(values) if sigmoid else values
 
 
 class CosineSimHashDecoder(CosineSimDecoder):
     def forward_all(self, z, sigmoid=True, d=0.5):
-        
         n_nodes = z.shape[0]
-                        
+
         pairs, _ = LSH(z.detach().cpu(), d=d, b=8, r=32)
-        
+
         v1s, v2s, ds = zip(*(list(pairs)))
-        
+
         diag_indices = np.diag_indices(n_nodes)[0]
-        
+
         v1s = np.concatenate((v1s, diag_indices))
         v2s = np.concatenate((v2s, diag_indices))
         ds = np.concatenate((ds, np.zeros(n_nodes)))
-        
+
         if not sigmoid:
             # Zeros get converted to 1s in the transformation below
             ds = np.zeros_like(ds)
-        
-        return torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), 1 - torch.FloatTensor(ds)/2, torch.Size([n_nodes, n_nodes]))
-        
+
+        return torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), 1 - torch.FloatTensor(ds) / 2,
+                                        torch.Size([n_nodes, n_nodes]))
+
 
 #         # DOK type sparse matrix has efficient changing of sparse structure
 #         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
@@ -95,7 +89,7 @@ class EuclideanDistanceDecoder(torch.nn.Module):
         Values lie between 0 and infinity
     """
 
-    def forward(self, z, edge_index, sigmoid=True, normalize=True):
+    def forward(self, z, edge_index, sigmoid=True):
         """
         Calculates the Euclidean distance only for two nodes' connection
         :param z: Latent space Z, tensor of shape [n_nodes, n_embed_dim]
@@ -104,40 +98,32 @@ class EuclideanDistanceDecoder(torch.nn.Module):
         :return: Scalar similarity score
         """
         a, b = z[edge_index[0]], z[edge_index[1]]
-        if normalize:
-            a, b = _norm_batch(a), _norm_batch(b)
-            
-        offset = 1.0 if normalize else 10.0
+        a, b = _norm_batch(a), _norm_batch(b)
 
         # Note: Changed to 10 since sigmoid(10)=1 and that's what we want for 0 dist.
         distance = F.pairwise_distance(a, b, p=2)
-        value = offset - distance
+        value = 1.0 - distance  # Euclidean distance in range (0, 2) for normalized vectors
         return torch.sigmoid(value) if sigmoid else value
 
-    def forward_all(self, z, sigmoid=True, normalize=True):
-        if normalize:
-            z = _norm_batch(z)
-            
-        offset = 1.0 if normalize else 10.0
-
+    def forward_all(self, z, sigmoid=True):
         # Calculates all pairwise similarities.
         # Note that using torch.nn.functional.pdist and transforming resulting matrix
         # to right shape might be faster
-        # Note: Changed to 10 since sigmoid(10)=1 and that's what we want for 0 dist.
-        values = offset - torch.norm(z[:, None] - z, dim=2, p=2)
+        z = _norm_batch(z)
+        values = 1.0 - torch.norm(z[:, None] - z, dim=2, p=2)
         return torch.sigmoid(values) if sigmoid else values
 
 
 class EuclideanDistanceHashDecoder(EuclideanDistanceDecoder):
     def forward_all(self, z, sigmoid=True, d=0.5, normalize=True, debug=False):
-                
+
         n_nodes = z.shape[0]
-            
+
         if normalize:
             z = _norm_batch(z)
-            
+
         z = z.detach().cpu()
-            
+
         offset = 1.0 if normalize else 10.0
 
         # Sample to get an idea of the distance to filter for
@@ -156,20 +142,24 @@ class EuclideanDistanceHashDecoder(EuclideanDistanceDecoder):
         dist = min(sample_distances) + d * (max(sample_distances) - min(sample_distances))
 
         pairs, _ = LSH(z, d=dist, dist_func='euclidean', b=4, r=64)
-        
+
         v1s, v2s, ds = zip(*(list(pairs)))
-        
+
         diag_indices = np.diag_indices(n_nodes)[0]
-        
+
         v1s = np.concatenate((v1s, diag_indices))
         v2s = np.concatenate((v2s, diag_indices))
-        
+
         ds = expit(offset - np.array(ds)) if sigmoid else np.ones_like(ds)
         ds = np.concatenate((ds, np.ones(n_nodes)))
-        
-        return torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds), torch.Size([n_nodes, n_nodes])) if not debug else (torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds), torch.Size([n_nodes, n_nodes])), dist)
 
-        
+        return torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds),
+                                        torch.Size([n_nodes, n_nodes])) if not debug else (
+            torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds),
+                                     torch.Size([n_nodes, n_nodes])),
+            dist)
+
+
 #         # DOK type sparse matrix has efficient changing of sparse structure
 #         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
 
@@ -190,14 +180,14 @@ class EuclideanDistanceHashDecoder(EuclideanDistanceDecoder):
 
 class InnerProductHashDecoder(InnerProductDecoder):
     def forward_all(self, z, sigmoid=True, d=0.25, debug=False, normalize=False):
-        
+
         n_nodes = z.shape[0]
-        
+
         if normalize:
             z = _norm_batch(z)
-            
+
         z = z.detach().cpu()
-            
+
         sample_ix = np.random.choice(np.arange(len(z)), replace=False, size=min(10, len(z)))
         assert len(sample_ix) >= 2, "Not enough nodes to sample"
         sample = z[sample_ix]
@@ -212,19 +202,24 @@ class InnerProductHashDecoder(InnerProductDecoder):
         dist = (min(sample_distances) + d * (max(sample_distances) - min(sample_distances)))
 
         pairs, _ = LSH(z, d=dist, dist_func='dot', b=8, r=48)
-        
+
         v1s, v2s, ds = zip(*(list(pairs)))
-        
+
         diag_indices = np.diag_indices(n_nodes)[0]
-        
+
         v1s = np.concatenate((v1s, diag_indices))
         v2s = np.concatenate((v2s, diag_indices))
-        
+
         if sigmoid:
             ds = expit(ds)
         ds = np.concatenate((ds, np.ones(n_nodes)))
-        
-        return torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds), torch.Size([n_nodes, n_nodes])) if not debug else (torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds), torch.Size([n_nodes, n_nodes])), dist)
+
+        return torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds),
+                                        torch.Size([n_nodes, n_nodes])) if not debug else (
+            torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds),
+                                     torch.Size([n_nodes, n_nodes])),
+            dist)
+
 
 #         # DOK type sparse matrix has efficient changing of sparse structure
 #         adjacency = sparse.dok_matrix(sparse.identity(len(z)))

@@ -2,6 +2,7 @@ from collections import defaultdict
 import torch
 
 import numpy as np
+from tqdm import tqdm
 
 
 def cosine_dist(v1, v2, use_tensors):
@@ -91,7 +92,7 @@ def LSH(X, b=8, r=32, d=0.3, dist_func = 'cosine', debug=False, use_tensors=True
     
     signature_matrix = signature_func(X, b, r, use_tensors)
 
-    for band in range(b):
+    for band in tqdm(range(b)):
         
         hashes = defaultdict(list)
                 

@@ -1,12 +1,12 @@
 import argparse
 import os.path as osp
+import sys
 import time
 
 import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid, CoraFull
 from torch_geometric.nn import GAE, VGAE
 
-import sys
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 
 from graph.early_stopping import EarlyStopping
@@ -73,10 +73,6 @@ def run_experiment(args):
         if args.model in ['VGAE']:
             loss = loss + (1 / data.num_nodes) * model.kl_loss()
 
-        t = time.time()
-        k = model.decoder.forward_all(latent_embeddings, sigmoid=True)
-        print(f"Computing full graph took {time.time() - t} milliseconds.")
-
         # Compute gradients
         loss.backward()
         # Perform optimization step
@@ -100,6 +96,46 @@ def run_experiment(args):
         # model.test return - AUC, AP
         return model.test(z, pos_edge_index, neg_edge_index)
 
+    def test_full_graph(z, pos_edge_index, neg_edge_index):
+        pos_y = z.new_ones(pos_edge_index.size(1))
+        neg_y = z.new_zeros(neg_edge_index.size(1))
+        y = torch.cat([pos_y, neg_y], dim=0)
+
+        t = time.time()
+        full_adjacency = model.decoder.forward_all(z, sigmoid=True)
+        print(f"Computing full graph took {time.time() - t} seconds.")
+        print(f"Adjacency matrix has {full_adjacency.element_size() * full_adjacency.nelement()} bytes in memory.")
+
+        print(type(full_adjacency))
+
+        if args.lsh:
+            pos_pred_indices = full_adjacency.coalesce().indices().t().detach().cpu().numpy()
+
+            pos_test_indices = pos_edge_index.t().detach().cpu().numpy()
+
+            sum = 0.0
+            for (a, b) in pos_pred_indices:
+                if [a, b] in pos_test_indices:
+                    sum += 1.0
+
+            precision = sum / len(pos_pred_indices)
+
+            sum = 0.0
+            for (a, b) in pos_test_indices:
+                if [a, b] in pos_pred_indices:
+                    sum += 1.0
+
+            recall = sum / len(pos_test_indices)
+
+            print(f"LSH version has precision {precision} and recall {recall}!")
+
+        # neg_pred = model.decoder(z, neg_edge_index, sigmoid=True)
+        # pred = torch.cat([pos_pred, neg_pred], dim=0)
+
+        # y, pred = y.detach().cpu().numpy(), pred.detach().cpu().numpy()
+        return 0.0, 0.0
+        # return roc_auc_score(y, pred), average_precision_score(y, pred)
+
     # Training routine
     early_stopping = EarlyStopping(patience=args.early_stopping_patience, verbose=True)
     logs = []
@@ -118,9 +154,18 @@ def run_experiment(args):
             print("Applying early-stopping")
             break
 
+    # Load best encoder
+    print("Load best model for evaluation.")
+    model.load_state_dict(torch.load('checkpoint.pt'))
+
     # Training is finished, calculate test metrics
     test_auc, test_ap = test(data.test_pos_edge_index, data.test_neg_edge_index)
     print('Test Results: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, test_auc, test_ap))
+
+    # Evaluate full grapph
+    latent_embeddings = model.encode(node_features, train_pos_edge_index)
+    full_graph_auc, full_graph_ap = test_full_graph(latent_embeddings, data.test_pos_edge_index,
+                                                    data.test_neg_edge_index)
 
 
 if __name__ == '__main__':
@@ -134,7 +179,7 @@ if __name__ == '__main__':
 
     # Training
     parser.add_argument('--epochs', type=int, default=500, help="Number of Epochs in Training")
-    parser.add_argument('--lr', type=int, default=0.001, help="Learning Rate")
+    parser.add_argument('--lr', type=float, default=0.001, help="Learning Rate")
     # Early Stopping
     parser.add_argument('--use_early_stopping', default="True")
     parser.add_argument('--early_stopping_patience', type=int, default=100)
