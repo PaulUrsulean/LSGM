@@ -6,6 +6,9 @@ import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid, CoraFull
 from torch_geometric.nn import GAE, VGAE
 
+import sys
+sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
+
 from graph.early_stopping import EarlyStopping
 from graph.modules import *
 

@@ -60,16 +60,32 @@ class CosineSimDecoder(torch.nn.Module):
 
 
 class CosineSimHashDecoder(CosineSimDecoder):
-    def forward_all(self, z, sigmoid=True, d=0.25):
-        pairs, _ = LSH(z.detach().cpu(), d=d, r=8, b=64)
+    def forward_all(self, z, sigmoid=True, d=0.5):
+        
+        n_nodes = z.shape[0]
+                        
+        pairs, _ = LSH(z.detach().cpu(), d=d, b=8, r=32)
+        
+        v1s, v2s, ds = zip(*(list(pairs)))
+        
+        diag_indices = np.diag_indices(n_nodes)[0]
+        
+        v1s = np.concatenate((v1s, diag_indices))
+        v2s = np.concatenate((v2s, diag_indices))
+        ds = np.concatenate((ds, np.zeros(n_nodes)))
+        
+        if not sigmoid:
+            # Zeros get converted to 1s in the transformation below
+            ds = np.zeros_like(ds)
+        
+        return torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), 1 - torch.FloatTensor(ds)/2, torch.Size([n_nodes, n_nodes]))
+        
 
-        # DOK type sparse matrix has efficient changing of sparse structure
-        adjacency = sparse.dok_matrix(sparse.identity(len(z)))
+#         # DOK type sparse matrix has efficient changing of sparse structure
+#         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
 
-        for v1, v2, d in pairs:
-            adjacency[v1, v2] = adjacency[v2, v1] = 1 - d/2 if sigmoid else 1
-
-        return DOK_to_torch(adjacency)
+#         for v1, v2, d in pairs:
+#             adjacency[v1, v2] = adjacency[v2, v1] = 1 - d/2 if sigmoid else 1
 
 
 class EuclideanDistanceDecoder(torch.nn.Module):
@@ -113,10 +129,14 @@ class EuclideanDistanceDecoder(torch.nn.Module):
 
 
 class EuclideanDistanceHashDecoder(EuclideanDistanceDecoder):
-    def forward_all(self, z, sigmoid=True, d=0.25, normalize=True, debug=False):
+    def forward_all(self, z, sigmoid=True, d=0.5, normalize=True, debug=False):
                 
+        n_nodes = z.shape[0]
+            
         if normalize:
             z = _norm_batch(z)
+            
+        z = z.detach().cpu()
             
         offset = 1.0 if normalize else 10.0
 
@@ -135,31 +155,48 @@ class EuclideanDistanceHashDecoder(EuclideanDistanceDecoder):
         # This is done in order to tackle the problem of unnormalized distance measures
         dist = min(sample_distances) + d * (max(sample_distances) - min(sample_distances))
 
-        pairs, _ = LSH(z.detach().cpu(), d=dist, dist_func='euclidean')
+        pairs, _ = LSH(z, d=dist, dist_func='euclidean', b=4, r=64)
         
-        # DOK type sparse matrix has efficient changing of sparse structure
-        adjacency = sparse.dok_matrix(sparse.identity(len(z)))
+        v1s, v2s, ds = zip(*(list(pairs)))
+        
+        diag_indices = np.diag_indices(n_nodes)[0]
+        
+        v1s = np.concatenate((v1s, diag_indices))
+        v2s = np.concatenate((v2s, diag_indices))
+        
+        ds = expit(offset - np.array(ds)) if sigmoid else np.ones_like(ds)
+        ds = np.concatenate((ds, np.ones(n_nodes)))
+        
+        return torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds), torch.Size([n_nodes, n_nodes])) if not debug else (torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds), torch.Size([n_nodes, n_nodes])), dist)
 
-        # DOK matrices can be given a batch of updates via _update
-        sparse_indices = dict()
+        
+#         # DOK type sparse matrix has efficient changing of sparse structure
+#         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
 
-        # Have to iterate twice in order to be able to return sigmoid-like values
-        # since Euclidean distance is in the range [0, inf)
-        max_dist = max(pairs, key=itemgetter(2))[2]
+#         # DOK matrices can be given a batch of updates via _update
+#         sparse_indices = dict()
 
-        for v1, v2, d in pairs:
-            sparse_indices[(v1, v2)] = sparse_indices[(v2, v1)] = expit(offset - d) if sigmoid else 1
+#         # Have to iterate twice in order to be able to return sigmoid-like values
+#         # since Euclidean distance is in the range [0, inf)
+#         max_dist = max(pairs, key=itemgetter(2))[2]
 
-        adjacency._update(sparse_indices)
+#         for v1, v2, d in pairs:
+#             sparse_indices[(v1, v2)] = sparse_indices[(v2, v1)] = expit(offset - d) if sigmoid else 1
 
-        return DOK_to_torch(adjacency) if not debug else (DOK_to_torch(adjacency), dist)
+#         adjacency._update(sparse_indices)
+
+#         return DOK_to_torch(adjacency) if not debug else (DOK_to_torch(adjacency), dist)
 
 
 class InnerProductHashDecoder(InnerProductDecoder):
     def forward_all(self, z, sigmoid=True, d=0.25, debug=False, normalize=False):
         
+        n_nodes = z.shape[0]
+        
         if normalize:
             z = _norm_batch(z)
+            
+        z = z.detach().cpu()
             
         sample_ix = np.random.choice(np.arange(len(z)), replace=False, size=min(10, len(z)))
         assert len(sample_ix) >= 2, "Not enough nodes to sample"
@@ -172,22 +209,35 @@ class InnerProductHashDecoder(InnerProductDecoder):
                 sample_distances.append(sample[i] @ sample[j])
 
         # This is done in order to tackle the problem of unnormalized distance measures
-        dist = (min(sample_distances) + d * (max(sample_distances) - min(sample_distances))).detach().cpu().numpy()
+        dist = (min(sample_distances) + d * (max(sample_distances) - min(sample_distances)))
 
-        pairs, _ = LSH(z.detach().cpu(), d=dist, dist_func='dot', b=32, r=8)
+        pairs, _ = LSH(z, d=dist, dist_func='dot', b=8, r=48)
+        
+        v1s, v2s, ds = zip(*(list(pairs)))
+        
+        diag_indices = np.diag_indices(n_nodes)[0]
+        
+        v1s = np.concatenate((v1s, diag_indices))
+        v2s = np.concatenate((v2s, diag_indices))
+        
+        if sigmoid:
+            ds = expit(ds)
+        ds = np.concatenate((ds, np.ones(n_nodes)))
+        
+        return torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds), torch.Size([n_nodes, n_nodes])) if not debug else (torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds), torch.Size([n_nodes, n_nodes])), dist)
 
-        # DOK type sparse matrix has efficient changing of sparse structure
-        adjacency = sparse.dok_matrix(sparse.identity(len(z)))
+#         # DOK type sparse matrix has efficient changing of sparse structure
+#         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
 
-        # DOK matrices can be given a batch of updates via _update
-        sparse_indices = dict()
+#         # DOK matrices can be given a batch of updates via _update
+#         sparse_indices = dict()
 
-        for v1, v2, d in pairs:
-            sparse_indices[(v1, v2)] = sparse_indices[(v2, v1)] = expit(d) if sigmoid else d
+#         for v1, v2, d in pairs:
+#             sparse_indices[(v1, v2)] = sparse_indices[(v2, v1)] = expit(d) if sigmoid else d
 
-        adjacency._update(sparse_indices)
+#         adjacency._update(sparse_indices)
 
-        return DOK_to_torch(adjacency) if not debug else (DOK_to_torch(adjacency), dist)
+#         return DOK_to_torch(adjacency) if not debug else (DOK_to_torch(adjacency), dist)
 
 
 class GAEEncoder(torch.nn.Module):
