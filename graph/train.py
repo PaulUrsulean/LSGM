@@ -12,6 +12,8 @@ sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 from graph.early_stopping import EarlyStopping
 from graph.modules import *
 
+from graph.torch_lsh import LSHDecoder
+
 
 def load_data(dataset_name):
     """ Loads required data set and normalizes features.
@@ -102,7 +104,7 @@ def run_experiment(args):
         y = torch.cat([pos_y, neg_y], dim=0)
 
         t = time.time()
-        full_adjacency = model.decoder.forward_all(z, sigmoid=True)
+        full_adjacency = LSHDecoder(verbose=True)(z)
         print(f"Computing full graph took {time.time() - t} seconds.")
         print(f"Adjacency matrix has {full_adjacency.element_size() * full_adjacency.nelement()} bytes in memory.")
 
@@ -110,7 +112,6 @@ def run_experiment(args):
 
         if args.lsh:
             pos_pred_indices = full_adjacency.coalesce().indices().t().detach().cpu().numpy()
-
             pos_test_indices = pos_edge_index.t().detach().cpu().numpy()
 
             sum = 0.0
