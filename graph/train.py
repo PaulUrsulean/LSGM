@@ -1,9 +1,13 @@
 import argparse
 import os.path as osp
+import time
 
 import torch_geometric.transforms as T
-from torch_geometric.datasets import Planetoid
+from torch_geometric.datasets import Planetoid, CoraFull
 from torch_geometric.nn import GAE, VGAE
+
+import sys
+sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 
 from graph.early_stopping import EarlyStopping
 from graph.modules import *
@@ -16,8 +20,13 @@ def load_data(dataset_name):
     :return: Tuple of dataset and extracted graph
     """
     path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset_name)
+
+    if dataset_name == 'cora_full':
+        dataset = CoraFull(path, T.NormalizeFeatures())
+    else:
+        dataset = Planetoid(path, dataset_name, T.NormalizeFeatures())
+
     print(f"Loading data set {dataset_name} from: ", path)
-    dataset = Planetoid(path, dataset_name, T.NormalizeFeatures())
     data = dataset[0]  # Extract graph
     return dataset, data
 
@@ -63,6 +72,10 @@ def run_experiment(args):
         loss = model.recon_loss(latent_embeddings, train_pos_edge_index)
         if args.model in ['VGAE']:
             loss = loss + (1 / data.num_nodes) * model.kl_loss()
+
+        t = time.time()
+        k = model.decoder.forward_all(latent_embeddings, sigmoid=True)
+        print(f"Computing full graph took {time.time() - t} milliseconds.")
 
         # Compute gradients
         loss.backward()
