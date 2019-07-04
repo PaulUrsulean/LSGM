@@ -1,4 +1,5 @@
 import argparse
+import os
 import os.path as osp
 import sys
 import time
@@ -6,6 +7,8 @@ import time
 import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid, CoraFull
 from torch_geometric.nn import GAE, VGAE
+
+from graph.utils import sparse_precision_recall, dense_precision_recall
 
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 
@@ -54,6 +57,7 @@ def run_experiment(args):
     # Split edges of a torch_geometric.data.Data object into pos negative train/val/test edges
     # default ratios of positive edges: val_ratio=0.05, test_ratio=0.1
     data.train_mask = data.val_mask = data.test_mask = data.y = None  # TODO See if necessary or why
+    print(data.edge_index.size(1))
     data = model.split_edges(data)
     node_features, train_pos_edge_index = data.x.to(device), data.train_pos_edge_index.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
@@ -98,48 +102,35 @@ def run_experiment(args):
         # model.test return - AUC, AP
         return model.test(z, pos_edge_index, neg_edge_index)
 
-    def test_full_graph(z, pos_edge_index, neg_edge_index):
-        pos_y = z.new_ones(pos_edge_index.size(1))
-        neg_y = z.new_zeros(neg_edge_index.size(1))
-        y = torch.cat([pos_y, neg_y], dim=0)
-
+    def test_full_graph(z):
         t = time.time()
-        full_adjacency = LSHDecoder(verbose=True)(z)
+        if args.lsh:
+            full_adjacency = LSHDecoder(bands=200,
+                                        rows=40,
+                                        verbose=True,
+                                        assure_correctness=False,
+                                        sim_thresh=-1.)(z)
+        else:
+            full_adjacency = model.decoder.forward_all(z)
         print(f"Computing full graph took {time.time() - t} seconds.")
-        print(f"Adjacency matrix has {full_adjacency.element_size() * full_adjacency.nelement()} bytes in memory.")
-
-        print(type(full_adjacency))
+        print(
+            f"Adjacency matrix takes {full_adjacency.element_size() * full_adjacency.nelement() / 10 ** 6} MB of memory.")
 
         if args.lsh:
-            pos_pred_indices = full_adjacency.coalesce().indices().t().detach().cpu().numpy()
-            pos_test_indices = pos_edge_index.t().detach().cpu().numpy()
+            precision, recall = sparse_precision_recall(data, full_adjacency)
+        else:
+            precision, recall = dense_precision_recall(data, full_adjacency)
 
-            sum = 0.0
-            for (a, b) in pos_pred_indices:
-                if [a, b] in pos_test_indices:
-                    sum += 1.0
-
-            precision = sum / len(pos_pred_indices)
-
-            sum = 0.0
-            for (a, b) in pos_test_indices:
-                if [a, b] in pos_pred_indices:
-                    sum += 1.0
-
-            recall = sum / len(pos_test_indices)
-
-            print(f"LSH version has precision {precision} and recall {recall}!")
-
-        # neg_pred = model.decoder(z, neg_edge_index, sigmoid=True)
-        # pred = torch.cat([pos_pred, neg_pred], dim=0)
-
-        # y, pred = y.detach().cpu().numpy(), pred.detach().cpu().numpy()
-        return 0.0, 0.0
-        # return roc_auc_score(y, pred), average_precision_score(y, pred)
+        print(f"Predicted full adjacency matrix has precision {precision} and recall {recall}!")
+        return precision, recall
 
     # Training routine
     early_stopping = EarlyStopping(patience=args.early_stopping_patience, verbose=True)
     logs = []
+
+    if args.load_model and os.path.isfile("checkpoint.pt"):
+        print("Loading model from savefile...")
+        model.load_state_dict(torch.load("checkpoint.pt"))
 
     for epoch in range(1, args.epochs):
         log = train_epoch(epoch)
@@ -165,8 +156,7 @@ def run_experiment(args):
 
     # Evaluate full grapph
     latent_embeddings = model.encode(node_features, train_pos_edge_index)
-    full_graph_auc, full_graph_ap = test_full_graph(latent_embeddings, data.test_pos_edge_index,
-                                                    data.test_neg_edge_index)
+    full_graph_auc, full_graph_ap = test_full_graph(latent_embeddings)
 
 
 if __name__ == '__main__':
@@ -182,10 +172,12 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=500, help="Number of Epochs in Training")
     parser.add_argument('--lr', type=float, default=0.001, help="Learning Rate")
     # Early Stopping
-    parser.add_argument('--use_early_stopping', default="True")
-    parser.add_argument('--early_stopping_patience', type=int, default=100)
+    parser.add_argument('--use-early-stopping', default="True")
+    parser.add_argument('--early-stopping-patience', type=int, default=100)
 
     # Model Specific
+    parser.add_argument('--load-model', action='store_true', default=False,
+                        help="Loads model from checkpoint if available")
     parser.add_argument('--model', type=str, default='VGAE', help="Specify Model Type", choices=['gae', 'vgae'])
     parser.add_argument('--latent-dim', type=int, default=16, help="Size of latent embedding.")
     parser.add_argument('--lsh', action='store_true', default=False, help="Use Local-Sensitivity-Hashing")

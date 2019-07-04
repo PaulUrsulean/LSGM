@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from itertools import combinations
+from itertools import combinations, combinations_with_replacement
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.distributions import MultivariateNormal
 from tqdm import tqdm
 
 
@@ -32,7 +33,9 @@ class CosineSimilarity(LSHDistanceMetric):
         """
         device = X.device
         dims = X.size(1)
-        random_planes = torch.randn((self.bands * self.rows, dims)).to(device)
+        m = MultivariateNormal(torch.zeros(dims), torch.eye(dims))
+        #random_planes = torch.randn((self.bands * self.rows, dims)).to(device)
+        random_planes = m.sample_n(self.bands * self.rows).to(device)
         projections = torch.mm(random_planes, X.t())
         sigature_matrix = (projections >= 0) * 2 - 1  # +1 if >0 else -1
         return sigature_matrix.reshape(X.size(0), self.bands, self.rows)
@@ -41,11 +44,12 @@ class CosineSimilarity(LSHDistanceMetric):
 class LSHDecoder(torch.nn.Module):
 
     def __init__(self,
-                 sim_thresh: float = 0.0,
+                 sim_thresh: float = 0.5,
                  bands: int = 16,
                  rows: int = 8,
                  metric: LSHDistanceMetric = CosineSimilarity,
-                 verbose: bool = False):
+                 verbose: bool = False,
+                 assure_correctness=True):
 
         super(LSHDecoder, self).__init__()
         self.sim_thresh = sim_thresh
@@ -53,6 +57,7 @@ class LSHDecoder(torch.nn.Module):
         self.rows = rows
         self.verbose = verbose
         self.sim_metric = metric(bands, rows)
+        self.assure_correctness = assure_correctness
 
     def indices_to_connections(self, duplicates_list, Z=None):
         edges = []
@@ -74,7 +79,7 @@ class LSHDecoder(torch.nn.Module):
         assert (list(signature_matrix.size()) == [int(signature_matrix.size(0)), self.bands, self.rows])
 
         pairs_values = []
-        pairs_indices = []
+        pairs_indices = set()
         # Hash for each node all rows for each band
         # Set (i, j) in a sparse matrix to 1 if they collide
 
@@ -100,18 +105,23 @@ class LSHDecoder(torch.nn.Module):
                     continue
                 pairwise_indices = combinations(duplicates, 2)  # TODO: Check true distance
                 for a, b in pairwise_indices:
-                    # dist = self.sim_metric.sim(Z[a], Z[b])
-                    dist = np.inf
-                    if dist > self.sim_thresh:
-                        pairs_indices += [(a, b)]
-                        pairs_values += [1]
+                    if self.assure_correctness:
+                        dist = self.sim_metric.sim(Z[a], Z[b])
+                        if dist > self.sim_thresh:
+                            pairs_indices.add((a, b))
+                            pairs_indices.add((b, a))
+                    else:
+                        pairs_indices.add((a, b))
+                        pairs_indices.add((b, a))
+
 
         if self.verbose:
             progress_bar.close()
 
-        pairs_indices = np.asarray(pairs_indices).T
+        pairs_indices = np.asarray(list(pairs_indices)).T
+        # pairs_indices, pairs_indices_unique = np.unique(pairs_indices, return_index=True)
         pairs = torch.sparse.FloatTensor(torch.LongTensor(pairs_indices),
-                                         torch.FloatTensor(pairs_values),
+                                         torch.ones(pairs_indices.shape[1]),
                                          torch.Size([int(signature_matrix.size(0)), int(signature_matrix.size(0))]))
 
         return pairs

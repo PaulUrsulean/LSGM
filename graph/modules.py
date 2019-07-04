@@ -54,7 +54,7 @@ class CosineSimDecoder(torch.nn.Module):
 
 
 class CosineSimHashDecoder(CosineSimDecoder):
-    def forward_all(self, z, sigmoid=True, d=0.5):
+    def forward_all(self, z, sigmoid=True, d=0.25):
         n_nodes = z.shape[0]
 
         pairs, _ = LSH(z.detach().cpu(), d=d, b=8, r=32)
@@ -291,6 +291,7 @@ def create_decoder(name, use_lsh=False):
 
 
 def create_encoder(name, num_features, latent_dim):
+
     if name == 'gae':
         return GAEEncoder(num_features, latent_dim)
     else:
