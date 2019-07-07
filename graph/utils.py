@@ -3,6 +3,7 @@ import numpy as np
 
 
 def sparse_precision_recall(data, pos_pred_indices):
+    print("Compute Sparse-Precision-Recall")
     all_edges = extract_all_edges(data)
     pred = sorted(pos_pred_indices.coalesce().indices().t().detach().cpu().numpy().tolist())
     true = sorted(all_edges)
@@ -28,6 +29,8 @@ def evaluate_edges(pred, true):
 
 
 def dense_precision_recall(data, pos_pred_indices, min_sim=0.73):
+    print("Compute Dense-Precision-Recall")
+    print("Similarity Threshold: ", min_sim)
     all_edges = extract_all_edges(data)
     pred = pos_pred_indices.detach().cpu().numpy() > min_sim
 

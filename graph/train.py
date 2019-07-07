@@ -122,7 +122,7 @@ def run_experiment(args):
         if args.lsh:
             precision, recall = sparse_precision_recall(data, full_adjacency)
         else:
-            precision, recall = dense_precision_recall(data, full_adjacency)
+            precision, recall = dense_precision_recall(data, full_adjacency, args.min_sim)
 
         print(f"Predicted full adjacency matrix has precision {precision} and recall {recall}!")
         return precision, recall
@@ -194,6 +194,10 @@ if __name__ == '__main__':
     parser.add_argument('--lsh-rows', type=int, default=40, help="Specify rows-parameter for LSH")
     parser.add_argument('--decoder', type=str, default='dot', help="Specify Decoder Type",
                         choices=['dot', 'l2', 'cosine'])
+
+    # Similarity-Threshold
+    parser.add_argument('--min_sim', type=float, default=0.73,
+                        help="Specify the min. similarity threshold for the dense-full-adjacency-matrix")
 
     args = parser.parse_args()
     run_experiment(args)
