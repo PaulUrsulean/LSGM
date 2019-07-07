@@ -10,14 +10,14 @@ import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid, CoraFull
 from torch_geometric.nn import GAE, VGAE
 
-from utils import sparse_precision_recall, dense_precision_recall
+from graph.utils import sparse_precision_recall, dense_precision_recall
 
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 
-from early_stopping import EarlyStopping
-from modules import *
+from graph.early_stopping import EarlyStopping
+from graph.modules import *
 
-from torch_lsh import LSHDecoder
+from graph.torch_lsh import LSHDecoder
 
 
 def load_data(dataset_name):
