@@ -4,18 +4,20 @@ import os.path as osp
 import sys
 import time
 
+
+import torch
 import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid, CoraFull
 from torch_geometric.nn import GAE, VGAE
 
-from graph.utils import sparse_precision_recall, dense_precision_recall
+from utils import sparse_precision_recall, dense_precision_recall
 
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 
-from graph.early_stopping import EarlyStopping
-from graph.modules import *
+from early_stopping import EarlyStopping
+from modules import *
 
-from graph.torch_lsh import LSHDecoder
+from torch_lsh import LSHDecoder
 
 
 def load_data(dataset_name):
@@ -57,7 +59,7 @@ def run_experiment(args):
     # Split edges of a torch_geometric.data.Data object into pos negative train/val/test edges
     # default ratios of positive edges: val_ratio=0.05, test_ratio=0.1
     data.train_mask = data.val_mask = data.test_mask = data.y = None  # TODO See if necessary or why
-    print(data.edge_index.size(1))
+    print("Data.edge_index.size", data.edge_index.size(1))
     data = model.split_edges(data)
     node_features, train_pos_edge_index = data.x.to(device), data.train_pos_edge_index.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
@@ -105,13 +107,14 @@ def run_experiment(args):
     def test_full_graph(z):
         t = time.time()
         if args.lsh:
-            full_adjacency = LSHDecoder(bands=200,
-                                        rows=40,
+            full_adjacency = LSHDecoder(bands=args.lsh_bands,
+                                        rows=args.lsh_rows,
                                         verbose=True,
                                         assure_correctness=False,
                                         sim_thresh=-1.)(z)
         else:
             full_adjacency = model.decoder.forward_all(z)
+
         print(f"Computing full graph took {time.time() - t} seconds.")
         print(
             f"Adjacency matrix takes {full_adjacency.element_size() * full_adjacency.nelement() / 10 ** 6} MB of memory.")
@@ -154,6 +157,10 @@ def run_experiment(args):
     test_auc, test_ap = test(data.test_pos_edge_index, data.test_neg_edge_index)
     print('Test Results: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, test_auc, test_ap))
 
+    # Check if early stopping was applied or not - if not: model might not be done with training
+    if args.epochs == (epoch+1):
+        print("Model might need more epochs - Increase number of Epochs!")
+
     # Evaluate full grapph
     latent_embeddings = model.encode(node_features, train_pos_edge_index)
     full_graph_auc, full_graph_ap = test_full_graph(latent_embeddings)
@@ -180,8 +187,13 @@ if __name__ == '__main__':
                         help="Loads model from checkpoint if available")
     parser.add_argument('--model', type=str, default='VGAE', help="Specify Model Type", choices=['gae', 'vgae'])
     parser.add_argument('--latent-dim', type=int, default=16, help="Size of latent embedding.")
+
+    #LSH
     parser.add_argument('--lsh', action='store_true', default=False, help="Use Local-Sensitivity-Hashing")
-    parser.add_argument('--decoder', type=str, default='dot', help="Specify Decoder Type")
+    parser.add_argument('--lsh-bands', type=int, default=200, help="Specify bands-parameter for LSH")
+    parser.add_argument('--lsh-rows', type=int, default=40, help="Specify rows-parameter for LSH")
+    parser.add_argument('--decoder', type=str, default='dot', help="Specify Decoder Type",
+                        choices=['dot', 'l2', 'cosine'])
 
     args = parser.parse_args()
     run_experiment(args)
