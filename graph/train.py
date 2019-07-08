@@ -170,12 +170,12 @@ def run_experiment(args):
 
         print("_____________________________Comparison Sparse vs Dense______________________________________________")
         # 2) Evation: Compare both adjacency matrices against each other
-        precision, recall = sparse_v_dense_precision_recall(naive_adjacency, lsh_adjacency, sim_threshold)
-        print(f"LSH sparse matrix has {precision} precision and {recall} recall w.r.t. the naively generated dense matrix!")
+        compare_precision, compare_recall = sparse_v_dense_precision_recall(naive_adjacency, lsh_adjacency, sim_threshold)
+        print(f"LSH sparse matrix has {compare_precision} precision and {compare_recall} recall w.r.t. the naively generated dense matrix!")
         #
 
-        return precision, recall
-        
+        return naive_precision, naive_recall, lsh_precision, lsh_recall, compare_precision, compare_precision
+
     # Training routine
     early_stopping = EarlyStopping(patience=args.early_stopping_patience, verbose=True)
     logs = []
@@ -220,8 +220,21 @@ def run_experiment(args):
     else:
         # Evaluation Logic:
         # Precision w.r.t. the generated graph
-        lsh_precision, lsh_recall = test_compare_lsh_naive_graphs(latent_embeddings)
 
+        naive_precision,naive_recall,lsh_precision, lsh_recall, compare_precision, compare_recall = test_compare_lsh_naive_graphs(latent_embeddings)
+
+        results = [args.dataset, args.lsh_bands, args.lsh_rows, test_auc, test_ap,
+                  naive_precision, naive_recall,
+                  lsh_precision, lsh_recall,
+                  compare_precision, compare_precision]
+
+
+        #results = np.append(np_result_file, args.dataset, args.lsh_bands, args.lsh_rows)
+        print("_______________________________Store Results______________________________")
+
+        # ToDo: verify the numpy array and its stored results
+        np.save(filename, np.asarray(results))
+        print("Stored Results")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -230,7 +243,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=42, help="Random seed")
 
     # Dataset
-    parser.add_argument('--dataset', type=str, default='PubMed', help="Data Set Name")
+    parser.add_argument('--dataset', type=str, default='PubMed', help="Data Set Name", choices=["PubMed", "Cora", "CiteSeer"])
 
     # Training
     parser.add_argument('--epochs', type=int, default=500, help="Number of Epochs in Training")
@@ -255,6 +268,51 @@ if __name__ == '__main__':
     # Similarity-Threshold
     parser.add_argument('--min_sim', type=float, default=0.73,
                         help="Specify the min. similarity threshold for the dense-full-adjacency-matrix")
+    parser.add_argument('--grid-search', action="store_true", default=False, help="Perform Grid-Search if selected")
 
     args = parser.parse_args()
-    run_experiment(args)
+
+    if args.grid_search:
+
+        print("Performing Grid-Search")
+        # Creating unique Grid-Search Filename
+        timestr = time.strftime("%Y-%m-%d_%H-%M-%S")
+        print(timestr)
+        filename = "GS-results-" + timestr
+
+        # np_result_file = np.save(filename, np.empty(1))
+        # print(filename)
+
+        # Grid-Search Parameters
+        lsh_bands = [4, 8]
+        lsh_rows = [32]
+        datasets = ["CiteSeer", "Cora"]
+
+        # counting all combinations of the grid search
+        counter = 0
+
+        for sets in datasets:
+            args.datasets = sets
+            print("datasets", args.datasets)
+
+            for bands in lsh_bands:
+                args.lsh_bands = bands
+                print("bands", args.lsh_bands)
+
+                for rows in lsh_rows:
+                    args.lsh_rows = rows
+                    print("rows", args.lsh_rows)
+                    counter += 1
+
+                    print("Performing combination: " ,args.datasets, args.lsh_bands, args.lsh_rows)
+
+                    # ToDo: Note that currently the args are not overwritten and only take the default ones !!!!
+                    run_experiment(args)
+
+        print("Performed Grid-Search over: ", counter)
+
+    else:
+        print("Performing Single-Experiment")
+        run_experiment(args)
+
+
