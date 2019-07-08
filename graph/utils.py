@@ -10,22 +10,30 @@ def sparse_precision_recall(data, pos_pred_indices):
     true = sorted(all_edges)
     print("Pred:", pred[:20])
     print("True:", true[:20])
-    print(f"{len(pred)} edges detected by LSH out of {len(all_edges)} in total.")
+    print(f"Sparse Precision-Recall: {len(pred)} edges detected by LSH out of {len(all_edges)} in total.")
     return evaluate_edges(pred, true)
+
 
 def dense_precision_recall(data, pos_pred_indices, min_sim=0.73):
     print("Compute Dense-Precision-Recall")
-    print("Similarity Threshold: ", min_sim)
     all_edges = extract_all_edges(data)
     pred = pos_pred_indices.detach().cpu().numpy() > min_sim
 
     pred = pred.nonzero()
     pred = np.array([pred[0].tolist(), pred[1].tolist()]).T.tolist()
     true = all_edges
-    print(f"{len(pred)} edges detected out of {len(all_edges)} in total.")
+    print(f"Dense Precision-Recall: {len(pred)} edges detected out of {len(all_edges)} in total.")
     return evaluate_edges(pred, true)
 
+
 def sparse_v_dense_precision_recall(dense_matrix, sparse_matrix, sim_threshold):
+    """
+    Compares Sparse-Adjacency matrix (LSH-Version) to the Dense-Adjacency matrix (non-LSH-version), which serves as GT.
+    :param dense_matrix:
+    :param sparse_matrix:
+    :param sim_threshold:
+    :return:
+    """
     dense_pred = (dense_matrix.detach().cpu().numpy() > sim_threshold).nonzero()
     dense_pred = np.array([dense_pred[0].tolist(), dense_pred[1].tolist()]).T.tolist()
     
@@ -33,6 +41,7 @@ def sparse_v_dense_precision_recall(dense_matrix, sparse_matrix, sim_threshold):
     print(f"LSH found {len(sparse_pred)} edges out of {len(dense_pred)} edges that the naive version predicted.")
     
     return evaluate_edges(sparse_pred, dense_pred)
+
 
 def evaluate_edges(pred, true):
     sum = 0.0
@@ -57,6 +66,7 @@ def evaluate_edges(pred, true):
 
     recall = sum / len(true) if len(pred) != 0 else 0
     return precision, recall
+
 
 def extract_all_edges(data):
     return torch.cat((data.val_pos_edge_index,

@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.distributions import MultivariateNormal
 from tqdm import tqdm
 
-
+#ToDo: Paul - try to build unormalized matrix and normalize with max value afterwards
 class LSHDistanceMetric(ABC):
 
     @abstractmethod

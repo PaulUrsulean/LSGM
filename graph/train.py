@@ -129,30 +129,53 @@ def run_experiment(args):
         return precision, recall
     
     def test_compare_lsh_naive_graphs(z, sim_threshold=0.99, assure_correctness=True):
+        """
+
+        :param z:
+        :param sim_threshold:
+        :param assure_correctness:
+        :return:
+        """
+        # Naive Adjacency-Matrix (Non-LSH-Version)
         t = time.time()
-        
         # Don't use sigmoid in order to directly compare thresholds with LSH
         naive_adjacency = model.decoder.forward_all(z, sigmoid=False)
-        
+
+        print("______________________________Naive Graph Computation KPI____________________________________________")
         print(f"Computing naive graph took {time.time() - t} seconds.")
         print(f"Naive adjacency matrix takes {naive_adjacency.element_size() * naive_adjacency.nelement() / 10 ** 6} MB of memory.")
-        
+
+        # LSH-Adjacency-Matrix:
         t = time.time()
         lsh_adjacency = LSHDecoder(bands=args.lsh_bands,
                                         rows=args.lsh_rows,
                                         verbose=True,
                                         assure_correctness=assure_correctness,
                                         sim_thresh=sim_threshold)(z)
-        
+
+        print("__________________________________LSH Graph Computation KPI__________________________________________")
+        # Todo: adjust the memory computation of sparse matrix -- so far leads to same result as dense version
         print(f"Computing LSH graph took {time.time() - t} seconds.")
-        print(f"Sparse adjacency matrix takes {lsh_adjacency.element_size() * lsh_adjacency.nelement() / 10 ** 6} MB of memory.")
-        
+        print(f"Sparse adjacency matrix takes {lsh_adjacency.element_size() * lsh_adjacency._nnz() / 10 ** 6} MB of memory.")
+
+
+        print("________________________________________Precision-Recall_____________________________________________")
+        # 1) Evaluation: Both Adjacency matrices against ground truth graph
+        naive_precision, naive_recall = dense_precision_recall(data, naive_adjacency, sim_threshold) # args.min_sim
+
+        lsh_precision, lsh_recall = sparse_precision_recall(data, lsh_adjacency)
+
+        print(f"Naive-Precision {naive_precision}; Naive-Recall{naive_recall}")
+        print(f"LSH-Precision {lsh_precision}; LSH-Recall{lsh_recall}")
+
+        print("_____________________________Comparison Sparse vs Dense______________________________________________")
+        # 2) Evation: Compare both adjacency matrices against each other
         precision, recall = sparse_v_dense_precision_recall(naive_adjacency, lsh_adjacency, sim_threshold)
         print(f"LSH sparse matrix has {precision} precision and {recall} recall w.r.t. the naively generated dense matrix!")
-        
+        #
+
         return precision, recall
         
-
     # Training routine
     early_stopping = EarlyStopping(patience=args.early_stopping_patience, verbose=True)
     logs = []
@@ -178,7 +201,7 @@ def run_experiment(args):
     # Load best encoder
     print("Load best model for evaluation.")
     model.load_state_dict(torch.load('checkpoint.pt'))
-
+    print("__________________________________________________________________________")
     # Training is finished, calculate test metrics
     test_auc, test_ap = test(data.test_pos_edge_index, data.test_neg_edge_index)
     print('Test Results: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, test_auc, test_ap))
@@ -187,11 +210,15 @@ def run_experiment(args):
     if args.epochs == (epoch+1):
         print("Model might need more epochs - Increase number of Epochs!")
 
-    # Evaluate full grapph
+    # Evaluate full graph
     latent_embeddings = model.encode(node_features, train_pos_edge_index)
+
     if not args.lsh:
+        # Compute precision recall w.r.t the ground truth graph
         graph_precision, graph_recall = test_full_graph(latent_embeddings)
+
     else:
+        # Evaluation Logic:
         # Precision w.r.t. the generated graph
         lsh_precision, lsh_recall = test_compare_lsh_naive_graphs(latent_embeddings)
 
