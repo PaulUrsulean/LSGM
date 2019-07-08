@@ -43,7 +43,7 @@ class CosineSimilarity(LSHDistanceMetric):
         distribution = MultivariateNormal(torch.zeros(D), torch.eye(D))
         random_planes = distribution.sample_n(self.bands * self.rows).to(device)
         
-        # Projections is (b*r) x N
+        # signature_matrix is (b*r) x N
         signature_matrix = (torch.mm(random_planes, X.t()) >= 0).int() * 2 - 1
         
 #         # unit8 underflows to 255 in when applying -1
@@ -103,12 +103,12 @@ class LSHDecoder(torch.nn.Module):
                 for i, j in combinations(duplicates, 2):
                     if self.assure_correctness:
                         
-                        similarity = self.sim_metric.sim(Z[i], Z[j])
+                        similarity = self.sim_metric.sim(embeddings[i], embeddings[j])
                         
                         # TODO: Also return distances
                         if similarity > self.sim_thresh:
-                            pairs_indices.add((i, j))
-                            pairs_indices.add((j, i))
+                            pairs_indices.add((i, j, similarity))
+                            pairs_indices.add((j, i, similarity))
                     else:
                         pairs_indices.add((i, j))
                         pairs_indices.add((j, i))
@@ -116,10 +116,16 @@ class LSHDecoder(torch.nn.Module):
         if self.verbose:
             progress_bar.close()
             
-        pairs_indices = np.asarray(list(pairs_indices)).T
+        pair_data = torch.tensor(list(pairs_indices)).t()
         
-        return torch.sparse.FloatTensor(torch.LongTensor(pairs_indices),
-                                         torch.ones(pairs_indices.shape[1]),
+        if self.assure_correctness:
+            sparse_values = torch.FloatTensor(pair_data[-1])
+            pair_data = torch.LongTensor(pair_data[:-1].long())
+        else:
+            sparse_values = torch.ones(pair_data.shape[1])
+
+        return torch.sparse.FloatTensor(pair_data,
+                                         sparse_values,
                                          torch.Size([N, N]))
 
     def forward(self, Z):

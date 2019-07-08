@@ -280,11 +280,11 @@ def create_decoder(name, use_lsh=False):
     :return: torch.nn.Module object with implemented forward and forward_all method
     """
     if name == "dot":
-        return InnerProductDecoder() if not use_lsh else InnerProductHashDecoder()
+        return InnerProductDecoder() #if not use_lsh else InnerProductHashDecoder()
     elif name == "cosine":
-        return CosineSimDecoder() if not use_lsh else CosineSimHashDecoder()
+        return CosineSimDecoder() #if not use_lsh else CosineSimHashDecoder()
     elif name == "l2":
-        return EuclideanDistanceDecoder() if not use_lsh else EuclideanDistanceHashDecoder()
+        return EuclideanDistanceDecoder() #if not use_lsh else EuclideanDistanceHashDecoder()
     else:
         raise NotImplementedError(
             f"Decoder with name {name} and {'' if use_lsh else 'non-'}LSH version not implemented.")

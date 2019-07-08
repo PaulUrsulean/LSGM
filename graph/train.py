@@ -10,9 +10,10 @@ import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid, CoraFull
 from torch_geometric.nn import GAE, VGAE
 
-from graph.utils import sparse_precision_recall, dense_precision_recall
-
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
+
+from graph.utils import sparse_precision_recall, dense_precision_recall, sparse_v_dense_precision_recall
+
 
 from graph.early_stopping import EarlyStopping
 from graph.modules import *
@@ -126,6 +127,31 @@ def run_experiment(args):
 
         print(f"Predicted full adjacency matrix has precision {precision} and recall {recall}!")
         return precision, recall
+    
+    def test_compare_lsh_naive_graphs(z, sim_threshold=0.99, assure_correctness=True):
+        t = time.time()
+        
+        # Don't use sigmoid in order to directly compare thresholds with LSH
+        naive_adjacency = model.decoder.forward_all(z, sigmoid=False)
+        
+        print(f"Computing naive graph took {time.time() - t} seconds.")
+        print(f"Naive adjacency matrix takes {naive_adjacency.element_size() * naive_adjacency.nelement() / 10 ** 6} MB of memory.")
+        
+        t = time.time()
+        lsh_adjacency = LSHDecoder(bands=args.lsh_bands,
+                                        rows=args.lsh_rows,
+                                        verbose=True,
+                                        assure_correctness=assure_correctness,
+                                        sim_thresh=sim_threshold)(z)
+        
+        print(f"Computing LSH graph took {time.time() - t} seconds.")
+        print(f"Sparse adjacency matrix takes {lsh_adjacency.element_size() * lsh_adjacency.nelement() / 10 ** 6} MB of memory.")
+        
+        precision, recall = sparse_v_dense_precision_recall(naive_adjacency, lsh_adjacency, sim_threshold)
+        print(f"LSH sparse matrix has {precision} precision and {recall} recall w.r.t. the naively generated dense matrix!")
+        
+        return precision, recall
+        
 
     # Training routine
     early_stopping = EarlyStopping(patience=args.early_stopping_patience, verbose=True)
@@ -163,7 +189,11 @@ def run_experiment(args):
 
     # Evaluate full grapph
     latent_embeddings = model.encode(node_features, train_pos_edge_index)
-    full_graph_auc, full_graph_ap = test_full_graph(latent_embeddings)
+    if not args.lsh:
+        graph_precision, graph_recall = test_full_graph(latent_embeddings)
+    else:
+        # Precision w.r.t. the generated graph
+        lsh_precision, lsh_recall = test_compare_lsh_naive_graphs(latent_embeddings)
 
 
 if __name__ == '__main__':
@@ -190,8 +220,8 @@ if __name__ == '__main__':
 
     #LSH
     parser.add_argument('--lsh', action='store_true', default=False, help="Use Local-Sensitivity-Hashing")
-    parser.add_argument('--lsh-bands', type=int, default=200, help="Specify bands-parameter for LSH")
-    parser.add_argument('--lsh-rows', type=int, default=40, help="Specify rows-parameter for LSH")
+    parser.add_argument('--lsh-bands', type=int, default=8, help="Specify bands-parameter for LSH")
+    parser.add_argument('--lsh-rows', type=int, default=64, help="Specify rows-parameter for LSH")
     parser.add_argument('--decoder', type=str, default='dot', help="Specify Decoder Type",
                         choices=['dot', 'l2', 'cosine'])
 

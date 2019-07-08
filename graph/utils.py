@@ -11,38 +11,7 @@ def sparse_precision_recall(data, pos_pred_indices):
     print("Pred:", pred[:20])
     print("True:", true[:20])
     print(f"{len(pred)} edges detected by LSH out of {len(all_edges)} in total.")
-    precision, recall = evaluate_edges(pred, true)
-    return precision, recall
-
-
-def evaluate_edges(pred, true):
-    sum = 0.0
-    progress_bar = tqdm(total = len(pred))
-    progress_bar.set_description("Checking precision")
-    
-    for conn in pred:
-        if conn in true:
-            sum += 1.0
-        progress_bar.update()
-        
-    progress_bar.close()
-        
-    precision = sum / len(pred) if len(pred) != 0 else 0
-    
-    sum = 0.0
-    progress_bar = tqdm(total = len(true))
-    progress_bar.set_description("Checking recall")
-    
-    for conn in true:
-        if conn in pred:
-            sum += 1.0
-        progress_bar.update()
-        
-    progress_bar.close()
-
-    recall = sum / len(true) if len(pred) != 0 else 0
-    return precision, recall
-
+    return evaluate_edges(pred, true)
 
 def dense_precision_recall(data, pos_pred_indices, min_sim=0.73):
     print("Compute Dense-Precision-Recall")
@@ -54,9 +23,40 @@ def dense_precision_recall(data, pos_pred_indices, min_sim=0.73):
     pred = np.array([pred[0].tolist(), pred[1].tolist()]).T.tolist()
     true = all_edges
     print(f"{len(pred)} edges detected out of {len(all_edges)} in total.")
-    precision, recall = evaluate_edges(pred, true)
-    return precision, recall
+    return evaluate_edges(pred, true)
 
+def sparse_v_dense_precision_recall(dense_matrix, sparse_matrix, sim_threshold):
+    dense_pred = (dense_matrix.detach().cpu().numpy() > sim_threshold).nonzero()
+    dense_pred = np.array([dense_pred[0].tolist(), dense_pred[1].tolist()]).T.tolist()
+    
+    sparse_pred = sorted(sparse_matrix.coalesce().indices().t().detach().cpu().numpy().tolist())
+    print(f"LSH found {len(sparse_pred)} edges out of {len(dense_pred)} edges that the naive version predicted.")
+    
+    return evaluate_edges(sparse_pred, dense_pred)
+
+def evaluate_edges(pred, true):
+    sum = 0.0
+    progress_bar = tqdm(total = len(pred) + len(true))
+    progress_bar.set_description("Checking precision and recall")
+    
+    for conn in pred:
+        if conn in true:
+            sum += 1.0
+        progress_bar.update()
+                
+    precision = sum / len(pred) if len(pred) != 0 else 0
+    
+    sum = 0.0
+    
+    for conn in true:
+        if conn in pred:
+            sum += 1.0
+        progress_bar.update()
+        
+    progress_bar.close()
+
+    recall = sum / len(true) if len(pred) != 0 else 0
+    return precision, recall
 
 def extract_all_edges(data):
     return torch.cat((data.val_pos_edge_index,
