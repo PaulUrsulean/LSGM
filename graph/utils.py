@@ -1,4 +1,5 @@
 import torch
+from tqdm import tqdm
 import numpy as np
 
 
@@ -16,15 +17,30 @@ def sparse_precision_recall(data, pos_pred_indices):
 
 def evaluate_edges(pred, true):
     sum = 0.0
+    progress_bar = tqdm(total = len(pred))
+    progress_bar.set_description("Checking precision")
+    
     for conn in pred:
         if conn in true:
             sum += 1.0
-    precision = sum / len(pred)
+        progress_bar.update()
+        
+    progress_bar.close()
+        
+    precision = sum / len(pred) if len(pred) != 0 else 0
+    
     sum = 0.0
+    progress_bar = tqdm(total = len(true))
+    progress_bar.set_description("Checking recall")
+    
     for conn in true:
         if conn in pred:
             sum += 1.0
-    recall = sum / len(true)
+        progress_bar.update()
+        
+    progress_bar.close()
+
+    recall = sum / len(true) if len(pred) != 0 else 0
     return precision, recall
 
 

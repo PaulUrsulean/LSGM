@@ -15,6 +15,10 @@ class LSHDistanceMetric(ABC):
     def sim(v1, v2):
         pass
 
+    @abstractmethod
+    def dist(v1, v2):
+        pass
+
 
 class CosineSimilarity(LSHDistanceMetric):
 
@@ -25,20 +29,28 @@ class CosineSimilarity(LSHDistanceMetric):
 
     def sim(self, v1, v2):
         return F.cosine_similarity(v1, v2, dim=0)
+    
+    def dist(self, v1, v2):
+        return 1 - self.sim(v1, v2)
 
     def signature(self, X: torch.Tensor):
         """
-
         :return: signature matrix with shape (n_samples, bands, rows)
         """
         device = X.device
-        dims = X.size(1)
-        m = MultivariateNormal(torch.zeros(dims), torch.eye(dims))
-        #random_planes = torch.randn((self.bands * self.rows, dims)).to(device)
-        random_planes = m.sample_n(self.bands * self.rows).to(device)
-        projections = torch.mm(random_planes, X.t())
-        sigature_matrix = (projections >= 0) * 2 - 1  # +1 if >0 else -1
-        return sigature_matrix.reshape(X.size(0), self.bands, self.rows)
+        N, D = X.shape
+        
+        distribution = MultivariateNormal(torch.zeros(D), torch.eye(D))
+        random_planes = distribution.sample_n(self.bands * self.rows).to(device)
+        
+        # Projections is (b*r) x N
+        signature_matrix = (torch.mm(random_planes, X.t()) >= 0).int() * 2 - 1
+        
+#         # unit8 underflows to 255 in when applying -1
+#         projections = torch.mm(random_planes, X.t())
+#         sigature_matrix = (projections >= 0).int() * 2 - 1  # +1 if >0 else -1
+        
+        return signature_matrix.reshape(self.bands, self.rows, N)
 
 
 class LSHDecoder(torch.nn.Module):
@@ -58,75 +70,60 @@ class LSHDecoder(torch.nn.Module):
         self.verbose = verbose
         self.sim_metric = metric(bands, rows)
         self.assure_correctness = assure_correctness
-
-    def indices_to_connections(self, duplicates_list, Z=None):
-        edges = []
-        values = []
-        for i_a in range(len(duplicates_list)):
-            for i_b in range(i_a + 1, len(duplicates_list)):
-                if Z is not None:
-                    sim = self.sim_metric.sim(Z[duplicates_list[i_a]], Z[duplicates_list[i_b]])
-                    if sim >= self.sim_thresh:
-                        edges.append((duplicates_list[i_a], duplicates_list[i_b]))
-                        values += [sim]
-                else:
-                    edges.append((duplicates_list[i_a], duplicates_list[i_b]))
-                    values += [1.]
-        return edges
-
-    def pairs_from_signature(self, signature_matrix, Z):
-        # Signature matrix should have shape [nodes, bands, rows]
-        assert (list(signature_matrix.size()) == [int(signature_matrix.size(0)), self.bands, self.rows])
-
-        pairs_values = []
+        
+    def recover_duplicates(self, signature_matrix, embeddings):
+        
+        N, D = embeddings.shape
         pairs_indices = set()
-        # Hash for each node all rows for each band
-        # Set (i, j) in a sparse matrix to 1 if they collide
-
-        # For now move signature matrix to cpu and convert to numpy -> Do in pytorch and implement own hashing function to speed it up!
-        sig_mat = signature_matrix.detach().cpu().numpy()
-
+        assert list(signature_matrix.shape) == [self.bands, self.rows, N]
+        
+        # Don't need to use .cpu().numpy() if we just want to access the data
+        # https://discuss.pytorch.org/t/get-value-out-of-torch-cuda-float-tensor/2539/4
+        signature = signature_matrix.detach()
+        
         if self.verbose:
-            progress_bar = tqdm(total=self.bands * signature_matrix.size(0))
+            progress_bar = tqdm(total=self.bands * N)
             progress_bar.set_description("Hashing values in signature matrix")
-            curr_iter = 0
+        
         for band in range(self.bands):
             hashtable = defaultdict(list)
-
-            for elem_i in range(signature_matrix.size(0)):
-                hash_key = hash(sig_mat[elem_i, band, :].data.tobytes())
-                hashtable[hash_key].append(elem_i)
+            
+            for i in range(N):
+                # Only bring one band column to the CPU at a time to reduce memory overhead
+                key = hash(signature[band, :, i].cpu().numpy().data.tobytes())
+                hashtable[key].append(i)
+                
                 if self.verbose:
                     progress_bar.update()
-                    curr_iter = curr_iter + 1
 
-            for (hash_val, duplicates) in hashtable.items():
-                if len(duplicates) <= 1:
+            for _, duplicates in hashtable.items():
+                if len(duplicates) < 2:
                     continue
-                pairwise_indices = combinations(duplicates, 2)  # TODO: Check true distance
-                for a, b in pairwise_indices:
+                    
+                for i, j in combinations(duplicates, 2):
                     if self.assure_correctness:
-                        dist = self.sim_metric.sim(Z[a], Z[b])
-                        if dist > self.sim_thresh:
-                            pairs_indices.add((a, b))
-                            pairs_indices.add((b, a))
+                        
+                        similarity = self.sim_metric.sim(Z[i], Z[j])
+                        
+                        # TODO: Also return distances
+                        if similarity > self.sim_thresh:
+                            pairs_indices.add((i, j))
+                            pairs_indices.add((j, i))
                     else:
-                        pairs_indices.add((a, b))
-                        pairs_indices.add((b, a))
-
-
+                        pairs_indices.add((i, j))
+                        pairs_indices.add((j, i))
+     
         if self.verbose:
             progress_bar.close()
-
+            
         pairs_indices = np.asarray(list(pairs_indices)).T
-        # pairs_indices, pairs_indices_unique = np.unique(pairs_indices, return_index=True)
-        pairs = torch.sparse.FloatTensor(torch.LongTensor(pairs_indices),
+        
+        return torch.sparse.FloatTensor(torch.LongTensor(pairs_indices),
                                          torch.ones(pairs_indices.shape[1]),
-                                         torch.Size([int(signature_matrix.size(0)), int(signature_matrix.size(0))]))
-
-        return pairs
+                                         torch.Size([N, N]))
 
     def forward(self, Z):
         signature_matrix = self.sim_metric.signature(Z)
-        pairs_matrix = self.pairs_from_signature(signature_matrix, Z)
+        pairs_matrix = self.recover_duplicates(signature_matrix, Z)
+
         return pairs_matrix
