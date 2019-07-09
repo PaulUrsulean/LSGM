@@ -3,6 +3,7 @@ import os
 import os.path as osp
 import sys
 import time
+import pickle
 
 
 import torch
@@ -22,7 +23,8 @@ from graph.torch_lsh import LSHDecoder
 
 
 def load_data(dataset_name):
-    """ Loads required data set and normalizes features.
+    """ 
+    Loads required data set and normalizes features.
     Implemented data sets are any of type Planetoid and Reddit.
     :param dataset_name: Name of data set
     :return: Tuple of dataset and extracted graph
@@ -105,34 +107,22 @@ def run_experiment(args):
         # model.test return - AUC, AP
         return model.test(z, pos_edge_index, neg_edge_index)
 
-    def test_full_graph(z):
+    def test_naive_graph(z):
         t = time.time()
-        if args.lsh:
-            full_adjacency = LSHDecoder(bands=args.lsh_bands,
-                                        rows=args.lsh_rows,
-                                        verbose=True,
-                                        assure_correctness=False,
-                                        sim_thresh=-1.)(z)
-        else:
-            full_adjacency = model.decoder.forward_all(z)
+        full_adjacency = model.decoder.forward_all(z)
 
         print(f"Computing full graph took {time.time() - t} seconds.")
-        print(
-            f"Adjacency matrix takes {full_adjacency.element_size() * full_adjacency.nelement() / 10 ** 6} MB of memory.")
+        print(f"Adjacency matrix takes {full_adjacency.element_size() * full_adjacency.nelement() / 10 ** 6} MB of memory.")
 
-        if args.lsh:
-            precision, recall = sparse_precision_recall(data, full_adjacency)
-        else:
-            precision, recall = dense_precision_recall(data, full_adjacency, args.min_sim)
+        precision, recall = dense_precision_recall(data, full_adjacency, args.min_sim)
 
         print(f"Predicted full adjacency matrix has precision {precision} and recall {recall}!")
         return precision, recall
     
-    def test_compare_lsh_naive_graphs(z, sim_threshold=0.99, assure_correctness=True):
+    def test_compare_lsh_naive_graphs(z, assure_correctness=True):
         """
 
         :param z:
-        :param sim_threshold:
         :param assure_correctness:
         :return:
         """
@@ -151,7 +141,7 @@ def run_experiment(args):
                                         rows=args.lsh_rows,
                                         verbose=True,
                                         assure_correctness=assure_correctness,
-                                        sim_thresh=sim_threshold)(z)
+                                        sim_thresh=args.min_sim)(z)
 
         print("__________________________________LSH Graph Computation KPI__________________________________________")
         # Todo: adjust the memory computation of sparse matrix -- so far leads to same result as dense version
@@ -161,23 +151,23 @@ def run_experiment(args):
 
         print("________________________________________Precision-Recall_____________________________________________")
         # 1) Evaluation: Both Adjacency matrices against ground truth graph
-        naive_precision, naive_recall = dense_precision_recall(data, naive_adjacency, sim_threshold) # args.min_sim
+        naive_precision, naive_recall = dense_precision_recall(data, naive_adjacency, args.min_sim) # args.min_sim
 
         lsh_precision, lsh_recall = sparse_precision_recall(data, lsh_adjacency)
 
-        print(f"Naive-Precision {naive_precision}; Naive-Recall{naive_recall}")
-        print(f"LSH-Precision {lsh_precision}; LSH-Recall{lsh_recall}")
+        print(f"Naive-Precision {naive_precision}; Naive-Recall {naive_recall}")
+        print(f"LSH-Precision {lsh_precision}; LSH-Recall {lsh_recall}")
 
         print("_____________________________Comparison Sparse vs Dense______________________________________________")
         # 2) Evation: Compare both adjacency matrices against each other
-        precision, recall = sparse_v_dense_precision_recall(naive_adjacency, lsh_adjacency, sim_threshold)
-        print(f"LSH sparse matrix has {precision} precision and {recall} recall w.r.t. the naively generated dense matrix!")
-        #
+        compare_precision, compare_recall = sparse_v_dense_precision_recall(naive_adjacency, lsh_adjacency, args.min_sim)
+        print(f"LSH sparse matrix has {compare_precision} precision and {compare_recall} recall w.r.t. the naively generated dense matrix!")
 
-        return precision, recall
-        
+        return naive_precision, naive_recall, lsh_precision, lsh_recall, compare_precision, compare_precision
+
     # Training routine
-    early_stopping = EarlyStopping(patience=args.early_stopping_patience, verbose=True)
+    early_stopping = EarlyStopping(args.use_early_stopping, patience=args.early_stopping_patience, verbose=True)
+    
     logs = []
 
     if args.load_model and os.path.isfile("checkpoint.pt"):
@@ -207,7 +197,7 @@ def run_experiment(args):
     print('Test Results: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, test_auc, test_ap))
 
     # Check if early stopping was applied or not - if not: model might not be done with training
-    if args.epochs == (epoch+1):
+    if args.epochs == epoch + 1:
         print("Model might need more epochs - Increase number of Epochs!")
 
     # Evaluate full graph
@@ -215,12 +205,24 @@ def run_experiment(args):
 
     if not args.lsh:
         # Compute precision recall w.r.t the ground truth graph
-        graph_precision, graph_recall = test_full_graph(latent_embeddings)
+        graph_precision, graph_recall = test_naive_graph(latent_embeddings)
 
     else:
-        # Evaluation Logic:
         # Precision w.r.t. the generated graph
-        lsh_precision, lsh_recall = test_compare_lsh_naive_graphs(latent_embeddings)
+        naive_precision, naive_recall, lsh_precision, lsh_recall, compare_precision, compare_recall = test_compare_lsh_naive_graphs(latent_embeddings)
+
+        return {'args': args, 
+                'test_auc': test_auc,
+                'test_ap': test_ap,
+                'naive_precision': naive_precision,
+                'naive_recall': naive_recall,
+                'lsh_precision': lsh_precision,
+                'lsh_recall': lsh_recall,
+                'compare_precision': compare_precision,
+                'compare_recall': compare_recall}
+
+
+        #results = np.append(np_result_file, args.dataset, args.lsh_bands, args.lsh_rows)
 
 
 if __name__ == '__main__':
@@ -230,7 +232,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=42, help="Random seed")
 
     # Dataset
-    parser.add_argument('--dataset', type=str, default='PubMed', help="Data Set Name")
+    parser.add_argument('--dataset', type=str, default='PubMed', help="Data Set Name", choices=["PubMed", "Cora", "CiteSeer"])
 
     # Training
     parser.add_argument('--epochs', type=int, default=500, help="Number of Epochs in Training")
@@ -253,8 +255,75 @@ if __name__ == '__main__':
                         choices=['dot', 'l2', 'cosine'])
 
     # Similarity-Threshold
-    parser.add_argument('--min_sim', type=float, default=0.73,
+    parser.add_argument('--min-sim', type=float, default=0.99,
                         help="Specify the min. similarity threshold for the dense-full-adjacency-matrix")
+    parser.add_argument('--grid-search', action="store_true", default=False, help="Perform Grid-Search if selected")
 
     args = parser.parse_args()
-    run_experiment(args)
+
+    if args.grid_search and args.lsh:
+
+        print("Performing Grid-Search")
+        # Creating unique Grid-Search Filename
+        timestr = time.strftime("%Y-%m-%d_%H-%M-%S")
+        results_folder = osp.join(osp.dirname(osp.abspath(__file__)), 'results', timestr)
+        if not osp.isdir(results_folder):
+            os.makedirs(results_folder)
+        
+        # We don't need to run grid search over all datasets, but for each 
+        # dataset because they likely have different optimal hyperparams
+        datasets = ["CiteSeer", "Cora"]
+        distance_measures = ['cosine'] # , 'l2', 'dot']
+
+        # Grid-Search Parameters
+        lsh_bands = [2, 4, 8, 16]
+        lsh_rows = [128, 64, 32, 16]
+        
+        for dset in datasets:
+            
+            train_from_scratch = True
+            args.dataset = dset
+            
+            for dist in distance_measures:
+                args.decoder = dist
+
+                for bands in lsh_bands:
+                    args.lsh_bands = bands
+
+                    for rows in lsh_rows:
+                        args.lsh_rows = rows
+
+                        print("Performing combination: " ,args.dataset, args.decoder, args.lsh_bands, args.lsh_rows)
+                        
+                        if train_from_scratch:
+                            args.load_model = False
+                            args.use_early_stopping = False
+                        else:
+                            args.load_model = True
+                            args.use_early_stopping = True
+                            args.early_stopping_patience = 1
+
+
+                        results = run_experiment(args)
+                        train_from_scratch = False
+
+                        print("_______________________________Store Results______________________________")
+
+                        filename = osp.join(results_folder, 
+                                            "GS_" + dset + 
+                                            "_" + dist + 
+                                            "_" + str(bands) +
+                                            "_" + str(rows) + ".pkl")
+
+                        with open(filename, "wb") as f:
+                            pickle.dump(results, f)
+                        print("Stored Results\n\n")
+    
+    elif args.grid_search and not args.lsh:
+        print("ERROR: Use the --lsh flag to grid search over LSH parameters")
+
+    else:
+        print("Performing Single-Experiment")
+        run_experiment(args)
+
+
