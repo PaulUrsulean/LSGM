@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.distributions import MultivariateNormal
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 class LSHDistanceMetric(ABC):
 
@@ -44,7 +44,7 @@ class CosineSimilarity(LSHDistanceMetric):
         N, D = X.shape
         
         distribution = MultivariateNormal(torch.zeros(D), torch.eye(D))
-        random_planes = distribution.sample_n(self.bands * self.rows).to(device)
+        random_planes = distribution.sample((self.bands * self.rows,)).to(device)
         
         # signature_matrix is (b*r) x N
         signature_matrix = (torch.mm(random_planes, X.t()) >= 0).int() * 2 - 1
@@ -122,22 +122,22 @@ class LSHDecoder(torch.nn.Module):
         # https://discuss.pytorch.org/t/get-value-out-of-torch-cuda-float-tensor/2539/4
         signature = signature_matrix.detach()
         
-        if self.verbose:
-            progress_bar = tqdm(total=self.bands * N)
-            progress_bar.set_description("Hashing values in signature matrix")
+        bands_loop = tqdm(range(self.bands), desc="Hashing values in signature matrix") if self.verbose else range(self.bands)
         
-        for band in range(self.bands):
+        for band in bands_loop:
             hashtable = defaultdict(list)
             
-            for i in range(N):
+            elems_loop = tqdm(range(N), desc=f"Hashing nodes to buckets") if self.verbose else range(N)
+            
+            for i in elems_loop:
                 # Only bring one band column to the CPU at a time to reduce memory overhead
                 key = hash(signature[band, :, i].cpu().numpy().data.tobytes())
                 hashtable[key].append(i)
                 
-                if self.verbose:
-                    progress_bar.update()
+                    
+            dupes_loop = tqdm(hashtable.items(), desc=f"Checking elements in same bucket") if self.verbose else hashtable.items()
 
-            for _, duplicates in hashtable.items():
+            for _, duplicates in dupes_loop:
                 if len(duplicates) < 2:
                     continue
                     
@@ -153,9 +153,6 @@ class LSHDecoder(torch.nn.Module):
                     else:
                         pairs_indices.add((i, j))
                         pairs_indices.add((j, i))
-     
-        if self.verbose:
-            progress_bar.close()
             
         pair_data = torch.tensor(list(pairs_indices)).t()
         

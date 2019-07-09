@@ -3,6 +3,7 @@ import os
 import os.path as osp
 import sys
 import time
+import pickle
 
 
 import torch
@@ -22,7 +23,8 @@ from graph.torch_lsh import LSHDecoder
 
 
 def load_data(dataset_name):
-    """ Loads required data set and normalizes features.
+    """ 
+    Loads required data set and normalizes features.
     Implemented data sets are any of type Planetoid and Reddit.
     :param dataset_name: Name of data set
     :return: Tuple of dataset and extracted graph
@@ -110,8 +112,7 @@ def run_experiment(args):
         full_adjacency = model.decoder.forward_all(z)
 
         print(f"Computing full graph took {time.time() - t} seconds.")
-        print(
-            f"Adjacency matrix takes {full_adjacency.element_size() * full_adjacency.nelement() / 10 ** 6} MB of memory.")
+        print(f"Adjacency matrix takes {full_adjacency.element_size() * full_adjacency.nelement() / 10 ** 6} MB of memory.")
 
         precision, recall = dense_precision_recall(data, full_adjacency, args.min_sim)
 
@@ -154,8 +155,8 @@ def run_experiment(args):
 
         lsh_precision, lsh_recall = sparse_precision_recall(data, lsh_adjacency)
 
-        print(f"Naive-Precision {naive_precision}; Naive-Recall{naive_recall}")
-        print(f"LSH-Precision {lsh_precision}; LSH-Recall{lsh_recall}")
+        print(f"Naive-Precision {naive_precision}; Naive-Recall {naive_recall}")
+        print(f"LSH-Precision {lsh_precision}; LSH-Recall {lsh_recall}")
 
         print("_____________________________Comparison Sparse vs Dense______________________________________________")
         # 2) Evation: Compare both adjacency matrices against each other
@@ -165,7 +166,8 @@ def run_experiment(args):
         return naive_precision, naive_recall, lsh_precision, lsh_recall, compare_precision, compare_precision
 
     # Training routine
-    early_stopping = EarlyStopping(patience=args.early_stopping_patience, verbose=True)
+    early_stopping = EarlyStopping(args.use_early_stopping, patience=args.early_stopping_patience, verbose=True)
+    
     logs = []
 
     if args.load_model and os.path.isfile("checkpoint.pt"):
@@ -195,7 +197,7 @@ def run_experiment(args):
     print('Test Results: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, test_auc, test_ap))
 
     # Check if early stopping was applied or not - if not: model might not be done with training
-    if args.epochs == (epoch+1):
+    if args.epochs == epoch + 1:
         print("Model might need more epochs - Increase number of Epochs!")
 
     # Evaluate full graph
@@ -206,23 +208,22 @@ def run_experiment(args):
         graph_precision, graph_recall = test_naive_graph(latent_embeddings)
 
     else:
-        # Evaluation Logic:
         # Precision w.r.t. the generated graph
+        naive_precision, naive_recall, lsh_precision, lsh_recall, compare_precision, compare_recall = test_compare_lsh_naive_graphs(latent_embeddings)
 
-        naive_precision,naive_recall,lsh_precision, lsh_recall, compare_precision, compare_recall = test_compare_lsh_naive_graphs(latent_embeddings)
-
-        results = [args.dataset, args.lsh_bands, args.lsh_rows, test_auc, test_ap,
-                  naive_precision, naive_recall,
-                  lsh_precision, lsh_recall,
-                  compare_precision, compare_precision]
+        return {'args': args, 
+                'test_auc': test_auc,
+                'test_ap': test_ap,
+                'naive_precision': naive_precision,
+                'naive_recall': naive_recall,
+                'lsh_precision': lsh_precision,
+                'lsh_recall': lsh_recall,
+                'compare_precision': compare_precision,
+                'compare_precision': compare_precision}
 
 
         #results = np.append(np_result_file, args.dataset, args.lsh_bands, args.lsh_rows)
-        print("_______________________________Store Results______________________________")
 
-        # ToDo: verify the numpy array and its stored results
-        np.save(filename, np.asarray(results))
-        print("Stored Results")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -260,44 +261,66 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    if args.grid_search:
+    if args.grid_search and args.lsh:
 
         print("Performing Grid-Search")
         # Creating unique Grid-Search Filename
         timestr = time.strftime("%Y-%m-%d_%H-%M-%S")
-        print(timestr)
-        filename = "GS-results-" + timestr
-
-        # np_result_file = np.save(filename, np.empty(1))
-        # print(filename)
+        results_folder = osp.join(osp.dirname(osp.abspath(__file__)), 'results', timestr)
+        if not osp.isdir(results_folder):
+            os.makedirs(results_folder)
+        
+        # We don't need to run grid search over all datasets, but for each 
+        # dataset because they likely have different optimal hyperparams
+        datasets = ["CiteSeer", "Cora"]
+        distance_measures = ['cosine'] # , 'l2', 'dot']
 
         # Grid-Search Parameters
-        lsh_bands = [4, 8]
-        lsh_rows = [32]
-        datasets = ["CiteSeer", "Cora"]
+        lsh_bands = [2, 4, 8, 16]
+        lsh_rows = [128, 64, 32, 16]
+        
+        for dset in datasets:
+            
+            train_from_scratch = True
+            args.dataset = dset
+            
+            for dist in distance_measures:
+                args.decoder = dist
 
-        # counting all combinations of the grid search
-        counter = 0
+                for bands in lsh_bands:
+                    args.lsh_bands = bands
 
-        for sets in datasets:
-            args.datasets = sets
-            print("datasets", args.datasets)
+                    for rows in lsh_rows:
+                        args.lsh_rows = rows
 
-            for bands in lsh_bands:
-                args.lsh_bands = bands
-                print("bands", args.lsh_bands)
+                        print("Performing combination: " ,args.dataset, args.decoder, args.lsh_bands, args.lsh_rows)
+                        
+                        if train_from_scratch:
+                            args.load_model = False
+                            args.use_early_stopping = False
+                        else:
+                            args.load_model = True
+                            args.use_early_stopping = True
+                            args.early_stopping_patience = 1
 
-                for rows in lsh_rows:
-                    args.lsh_rows = rows
-                    print("rows", args.lsh_rows)
-                    counter += 1
 
-                    print("Performing combination: " ,args.datasets, args.lsh_bands, args.lsh_rows)
+                        results = run_experiment(args)
+                        train_from_scratch = False
 
-                    # ToDo: Note that currently the args are not overwritten and only take the default ones !!!!
-                    run_experiment(args)
+                        print("_______________________________Store Results______________________________")
 
-        print("Performed Grid-Search over: ", counter)
+                        filename = osp.join(results_folder, 
+                                            "GS_" + dset + 
+                                            "_" + dist + 
+                                            "_" + str(bands) +
+                                            "_" + str(rows) + ".pkl")
+
+                        with open(filename, "wb") as f:
+                            pickle.dump(results, f)
+                        print("Stored Results\n\n")
+    
+    elif args.grid_search and not args.lsh:
+        print("ERROR: Use the --lsh flag to grid search over LSH parameters")
 
     else:
         print("Performing Single-Experiment")

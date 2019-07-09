@@ -84,9 +84,9 @@ class CosineSimHashDecoder(CosineSimDecoder):
 
 class EuclideanDistanceDecoder(torch.nn.Module):
     """
-        Calculates pairwise similarity of embeddings with the L2 norm.
-        sim(u, v) = sqrt(sum((u - v)**2))
-        Values lie between 0 and infinity
+    Calculates pairwise similarity of embeddings with the L2 norm.
+    sim(u, v) = sqrt(sum((u - v)**2))
+    Values lie between 0 and infinity
     """
 
     def forward(self, z, edge_index, sigmoid=True):
