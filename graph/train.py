@@ -8,13 +8,12 @@ import pickle
 
 import torch
 import torch_geometric.transforms as T
-from torch_geometric.datasets import Planetoid, CoraFull
+from torch_geometric.datasets import Planetoid, CoraFull, Coauthor
 from torch_geometric.nn import GAE, VGAE
 
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 
 from graph.utils import sparse_precision_recall, dense_precision_recall, sparse_v_dense_precision_recall, sample_percentile
-
 
 from graph.early_stopping import EarlyStopping
 from graph.modules import *
@@ -33,6 +32,8 @@ def load_data(dataset_name):
 
     if dataset_name == 'cora_full':
         dataset = CoraFull(path, T.NormalizeFeatures())
+    elif dataset_name.lower() == 'coauthor':
+        dataset = Coauthor(path, 'Physics', T.NormalizeFeatures())
     else:
         dataset = Planetoid(path, dataset_name, T.NormalizeFeatures())
 
@@ -143,10 +144,10 @@ def run_experiment(args):
         # LSH-Adjacency-Matrix:
         t = time.time()
         lsh_adjacency = LSHDecoder(bands=args.lsh_bands,
-                                        rows=args.lsh_rows,
-                                        verbose=True,
-                                        assure_correctness=assure_correctness,
-                                        sim_thresh=args.min_sim_absolute_value)(z)
+                                    rows=args.lsh_rows,
+                                    verbose=True,
+                                    assure_correctness=assure_correctness,
+                                    sim_thresh=args.min_sim_absolute_value)(z)
         lsh_time = time.time() - t
         lsh_size = lsh_adjacency.element_size() * lsh_adjacency._nnz() / 10 ** 6
 
@@ -221,7 +222,7 @@ def run_experiment(args):
         # Precision w.r.t. the generated graph
         naive_precision, naive_recall, naive_time, naive_size, lsh_precision, lsh_recall, lsh_time, lsh_size, compare_precision, compare_recall = test_compare_lsh_naive_graphs(latent_embeddings)
 
-        return {'args': args, 
+        return {'args': args,
                 'test_auc': test_auc,
                 'test_ap': test_ap,
                 'naive_precision': naive_precision,
@@ -246,7 +247,8 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=42, help="Random seed")
 
     # Dataset
-    parser.add_argument('--dataset', type=str, default='PubMed', help="Data Set Name", choices=["PubMed", "Cora", "CiteSeer"])
+    parser.add_argument('--dataset', type=str, default='PubMed', help="Data Set Name",
+                        choices=["PubMed", "Cora", "CiteSeer", "Coauthor"])
 
     # Training
     parser.add_argument('--epochs', type=int, default=500, help="Number of Epochs in Training")
@@ -308,7 +310,7 @@ if __name__ == '__main__':
                     for rows in lsh_rows:
                         args.lsh_rows = rows
 
-                        print("Performing combination: " ,args.dataset, args.decoder, args.lsh_bands, args.lsh_rows)
+                        print("Performing combination: ", args.dataset, args.decoder, args.lsh_bands, args.lsh_rows)
                         
                         if train_from_scratch:
                             args.load_model = False
@@ -340,5 +342,3 @@ if __name__ == '__main__':
     else:
         print("Performing Single-Experiment")
         run_experiment(args)
-
-
