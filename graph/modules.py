@@ -5,7 +5,7 @@ import scipy.sparse as sparse
 from scipy.special import expit
 from torch.nn import functional as F
 from torch_geometric.nn import GCNConv
-from torch_geometric.nn.models.autoencoder import InnerProductDecoder
+from torch_geometric.nn import InnerProductDecoder
 
 sys.path.append(dirname(abspath(__file__)))
 from graph.lsh import *

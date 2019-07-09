@@ -13,7 +13,7 @@ from torch_geometric.nn import GAE, VGAE
 
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 
-from graph.utils import sparse_precision_recall, dense_precision_recall, sparse_v_dense_precision_recall
+from graph.utils import sparse_precision_recall, dense_precision_recall, sparse_v_dense_precision_recall, sample_percentile
 
 
 from graph.early_stopping import EarlyStopping
@@ -109,12 +109,12 @@ def run_experiment(args):
 
     def test_naive_graph(z):
         t = time.time()
-        full_adjacency = model.decoder.forward_all(z)
+        full_adjacency = model.decoder.forward_all(z, sigmoid=(args.decoder=='dot'))
 
         print(f"Computing full graph took {time.time() - t} seconds.")
         print(f"Adjacency matrix takes {full_adjacency.element_size() * full_adjacency.nelement() / 10 ** 6} MB of memory.")
 
-        precision, recall = dense_precision_recall(data, full_adjacency, args.min_sim)
+        precision, recall = dense_precision_recall(data, full_adjacency, args.min_sim, args.decoder)
 
         print(f"Predicted full adjacency matrix has precision {precision} and recall {recall}!")
         return precision, recall
@@ -129,11 +129,16 @@ def run_experiment(args):
         # Naive Adjacency-Matrix (Non-LSH-Version)
         t = time.time()
         # Don't use sigmoid in order to directly compare thresholds with LSH
-        naive_adjacency = model.decoder.forward_all(z, sigmoid=False)
+        naive_adjacency = model.decoder.forward_all(z, sigmoid=(args.decoder=='dot'))
+        naive_time = time.time() - t
+        naive_size = naive_adjacency.element_size() * naive_adjacency.nelement() / 10 ** 6
+        
+        if args.min_sim_absolute_value is None:
+            args.min_sim_absolute_value = sample_percentile(args.min_sim, naive_adjacency)
 
         print("______________________________Naive Graph Computation KPI____________________________________________")
-        print(f"Computing naive graph took {time.time() - t} seconds.")
-        print(f"Naive adjacency matrix takes {naive_adjacency.element_size() * naive_adjacency.nelement() / 10 ** 6} MB of memory.")
+        print(f"Computing naive graph took {naive_time} seconds.")
+        print(f"Naive adjacency matrix takes {naive_size} MB of memory.")
 
         # LSH-Adjacency-Matrix:
         t = time.time()
@@ -141,17 +146,19 @@ def run_experiment(args):
                                         rows=args.lsh_rows,
                                         verbose=True,
                                         assure_correctness=assure_correctness,
-                                        sim_thresh=args.min_sim)(z)
+                                        sim_thresh=args.min_sim_absolute_value)(z)
+        lsh_time = time.time() - t
+        lsh_size = lsh_adjacency.element_size() * lsh_adjacency._nnz() / 10 ** 6
 
         print("__________________________________LSH Graph Computation KPI__________________________________________")
         # Todo: adjust the memory computation of sparse matrix -- so far leads to same result as dense version
-        print(f"Computing LSH graph took {time.time() - t} seconds.")
-        print(f"Sparse adjacency matrix takes {lsh_adjacency.element_size() * lsh_adjacency._nnz() / 10 ** 6} MB of memory.")
+        print(f"Computing LSH graph took {lsh_time} seconds.")
+        print(f"Sparse adjacency matrix takes {lsh_size} MB of memory.")
 
 
         print("________________________________________Precision-Recall_____________________________________________")
         # 1) Evaluation: Both Adjacency matrices against ground truth graph
-        naive_precision, naive_recall = dense_precision_recall(data, naive_adjacency, args.min_sim) # args.min_sim
+        naive_precision, naive_recall = dense_precision_recall(data, naive_adjacency, args.min_sim_absolute_value, args.decoder)
 
         lsh_precision, lsh_recall = sparse_precision_recall(data, lsh_adjacency)
 
@@ -160,10 +167,10 @@ def run_experiment(args):
 
         print("_____________________________Comparison Sparse vs Dense______________________________________________")
         # 2) Evation: Compare both adjacency matrices against each other
-        compare_precision, compare_recall = sparse_v_dense_precision_recall(naive_adjacency, lsh_adjacency, args.min_sim)
+        compare_precision, compare_recall = sparse_v_dense_precision_recall(naive_adjacency, lsh_adjacency, args.min_sim_absolute_value)
         print(f"LSH sparse matrix has {compare_precision} precision and {compare_recall} recall w.r.t. the naively generated dense matrix!")
 
-        return naive_precision, naive_recall, lsh_precision, lsh_recall, compare_precision, compare_precision
+        return naive_precision, naive_recall, naive_time, naive_size, lsh_precision, lsh_recall, lsh_time, lsh_size, compare_precision, compare_recall
 
     # Training routine
     early_stopping = EarlyStopping(args.use_early_stopping, patience=args.early_stopping_patience, verbose=True)
@@ -174,19 +181,22 @@ def run_experiment(args):
         print("Loading model from savefile...")
         model.load_state_dict(torch.load("checkpoint.pt"))
 
-    for epoch in range(1, args.epochs):
-        log = train_epoch(epoch)
-        logs.append(log)
+    if not (args.load_model and args.early_stopping_patience == 0):        
+        for epoch in range(1, args.epochs):
+            log = train_epoch(epoch)
+            logs.append(log)
 
-        # Validation metrics
-        val_auc, val_ap = test(data.val_pos_edge_index, data.val_neg_edge_index)
-        print('Validation-Epoch: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, val_auc, val_ap))
+            # Validation metrics
+            val_auc, val_ap = test(data.val_pos_edge_index, data.val_neg_edge_index)
+            print('Validation-Epoch: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, val_auc, val_ap))
 
-        # Stop training if validation scores have not improved
-        early_stopping(val_ap, model)
-        if early_stopping.early_stop:
-            print("Applying early-stopping")
-            break
+            # Stop training if validation scores have not improved
+            early_stopping(val_ap, model)
+            if early_stopping.early_stop:
+                print("Applying early-stopping")
+                break
+    else:
+        epoch=0
 
     # Load best encoder
     print("Load best model for evaluation.")
@@ -209,15 +219,19 @@ def run_experiment(args):
 
     else:
         # Precision w.r.t. the generated graph
-        naive_precision, naive_recall, lsh_precision, lsh_recall, compare_precision, compare_recall = test_compare_lsh_naive_graphs(latent_embeddings)
+        naive_precision, naive_recall, naive_time, naive_size, lsh_precision, lsh_recall, lsh_time, lsh_size, compare_precision, compare_recall = test_compare_lsh_naive_graphs(latent_embeddings)
 
         return {'args': args, 
                 'test_auc': test_auc,
                 'test_ap': test_ap,
                 'naive_precision': naive_precision,
                 'naive_recall': naive_recall,
+                'naive_time': naive_time,
+                'naive_size': naive_size,
                 'lsh_precision': lsh_precision,
                 'lsh_recall': lsh_recall,
+                'lsh_time': lsh_time,
+                'lsh_size': lsh_size,
                 'compare_precision': compare_precision,
                 'compare_recall': compare_recall}
 
@@ -252,15 +266,15 @@ if __name__ == '__main__':
     parser.add_argument('--lsh-bands', type=int, default=8, help="Specify bands-parameter for LSH")
     parser.add_argument('--lsh-rows', type=int, default=64, help="Specify rows-parameter for LSH")
     parser.add_argument('--decoder', type=str, default='dot', help="Specify Decoder Type",
-                        choices=['dot', 'l2', 'cosine'])
+                        choices=['dot', 'cosine'])
 
     # Similarity-Threshold
     parser.add_argument('--min-sim', type=float, default=0.99,
-                        help="Specify the min. similarity threshold for the dense-full-adjacency-matrix")
+                        help="Specify the min. similarity PERCENTILE threshold for both naive and LSH")
     parser.add_argument('--grid-search', action="store_true", default=False, help="Perform Grid-Search if selected")
 
     args = parser.parse_args()
-
+    
     if args.grid_search and args.lsh:
 
         print("Performing Grid-Search")
@@ -273,11 +287,11 @@ if __name__ == '__main__':
         # We don't need to run grid search over all datasets, but for each 
         # dataset because they likely have different optimal hyperparams
         datasets = ["CiteSeer", "Cora"]
-        distance_measures = ['cosine'] # , 'l2', 'dot']
+        distance_measures = ['cosine', 'dot']
 
         # Grid-Search Parameters
-        lsh_bands = [2, 4, 8, 16]
-        lsh_rows = [128, 64, 32, 16]
+        lsh_bands = [2, 4, 8, 16, 32, 48]
+        lsh_rows = [196, 128, 64, 32, 16, 8, 4]
         
         for dset in datasets:
             
@@ -285,6 +299,7 @@ if __name__ == '__main__':
             args.dataset = dset
             
             for dist in distance_measures:
+                args.min_sim_absolute_value = None
                 args.decoder = dist
 
                 for bands in lsh_bands:
@@ -301,7 +316,7 @@ if __name__ == '__main__':
                         else:
                             args.load_model = True
                             args.use_early_stopping = True
-                            args.early_stopping_patience = 1
+                            args.early_stopping_patience = 0
 
 
                         results = run_experiment(args)

@@ -6,7 +6,15 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.distributions import MultivariateNormal
-from tqdm import tqdm, trange
+from tqdm import tqdm
+
+import sys
+import os
+import os.path as path
+
+sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))
+
+from graph.utils import sample_percentile
 
 class LSHDistanceMetric(ABC):
 
@@ -50,29 +58,7 @@ class CosineSimilarity(LSHDistanceMetric):
         signature_matrix = (torch.mm(random_planes, X.t()) >= 0).int() * 2 - 1
         
         return signature_matrix.reshape(self.bands, self.rows, N)
-    
-#ToDo: Paul - try to build unormalized matrix and normalize with max value afterwards
-class EuclideanSimilarity(LSHDistanceMetric):
-
-    def __init__(self, bands: int, rows: int):
-        super(EuclideanSimilarity, self).__init__()
-        self.bands = bands
-        self.rows = rows
         
-    def sim(self, v1, v2):
-        pass
-    
-    def dist(self, v1, v2):
-        return (v1 - v2).norm()
-    
-    def signature(self, X: torch.Tensor):
-        """
-        :return: signature matrix with shape (n_samples, bands, rows)
-        """
-        device = X.device
-        N, D = X.shape
-        
-#ToDo: Paul - try to build unormalized matrix and normalize with max value afterwards
 class DotProductSimilarity(LSHDistanceMetric):
 
     def __init__(self, bands: int, rows: int):
@@ -92,7 +78,19 @@ class DotProductSimilarity(LSHDistanceMetric):
         """
         device = X.device
         N, D = X.shape
-
+        
+        augment_col = X.norm(dim=1)
+        augmented = X/augment_col.max()
+        augment_col = torch.sqrt(1 - augmented.norm(dim=1))[:, None]
+        
+        augmented = np.cat((augmented, augment_col), dim=1)
+        
+        distribution = MultivariateNormal(torch.zeros(D), torch.eye(D))
+        random_planes = distribution.sample((self.bands * self.rows,)).to(device)
+        
+        signature_matrix = (torch.mm(random_planes, augmented.t()) >= 0).int() * 2 - 1
+        return signature_matrix.reshape(self.bands, self.rows, N)
+        
 
 class LSHDecoder(torch.nn.Module):
 
@@ -109,6 +107,7 @@ class LSHDecoder(torch.nn.Module):
         self.bands = bands
         self.rows = rows
         self.verbose = verbose
+        self.sim_metric_str = 'cosine' if metric is CosineSimilarity else 'dot'
         self.sim_metric = metric(bands, rows)
         self.assure_correctness = assure_correctness
         
@@ -145,8 +144,8 @@ class LSHDecoder(torch.nn.Module):
                     if self.assure_correctness:
                         
                         similarity = self.sim_metric.sim(embeddings[i], embeddings[j])
+                        similarity = similarity.item() if self.sim_metric_str == 'cosine' else torch.sigmoid(similarity).item()
                         
-                        # TODO: Also return distances
                         if similarity > self.sim_thresh:
                             pairs_indices.add((i, j, similarity))
                             pairs_indices.add((j, i, similarity))
