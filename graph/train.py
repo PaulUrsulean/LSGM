@@ -219,7 +219,7 @@ def run_experiment(args):
                 'lsh_precision': lsh_precision,
                 'lsh_recall': lsh_recall,
                 'compare_precision': compare_precision,
-                'compare_precision': compare_precision}
+                'compare_recall': compare_recall}
 
 
         #results = np.append(np_result_file, args.dataset, args.lsh_bands, args.lsh_rows)
