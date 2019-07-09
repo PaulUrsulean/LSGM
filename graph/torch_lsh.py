@@ -8,7 +8,6 @@ import torch.nn.functional as F
 from torch.distributions import MultivariateNormal
 from tqdm import tqdm
 
-#ToDo: Paul - try to build unormalized matrix and normalize with max value afterwards
 class LSHDistanceMetric(ABC):
 
     @abstractmethod
@@ -17,6 +16,10 @@ class LSHDistanceMetric(ABC):
 
     @abstractmethod
     def dist(v1, v2):
+        pass
+    
+    @abstractmethod
+    def signature(X):
         pass
 
 
@@ -46,11 +49,49 @@ class CosineSimilarity(LSHDistanceMetric):
         # signature_matrix is (b*r) x N
         signature_matrix = (torch.mm(random_planes, X.t()) >= 0).int() * 2 - 1
         
-#         # unit8 underflows to 255 in when applying -1
-#         projections = torch.mm(random_planes, X.t())
-#         sigature_matrix = (projections >= 0).int() * 2 - 1  # +1 if >0 else -1
-        
         return signature_matrix.reshape(self.bands, self.rows, N)
+    
+#ToDo: Paul - try to build unormalized matrix and normalize with max value afterwards
+class EuclideanSimilarity(LSHDistanceMetric):
+
+    def __init__(self, bands: int, rows: int):
+        super(EuclideanSimilarity, self).__init__()
+        self.bands = bands
+        self.rows = rows
+        
+    def sim(self, v1, v2):
+        pass
+    
+    def dist(self, v1, v2):
+        return (v1 - v2).norm()
+    
+    def signature(self, X: torch.Tensor):
+        """
+        :return: signature matrix with shape (n_samples, bands, rows)
+        """
+        device = X.device
+        N, D = X.shape
+        
+#ToDo: Paul - try to build unormalized matrix and normalize with max value afterwards
+class DotProductSimilarity(LSHDistanceMetric):
+
+    def __init__(self, bands: int, rows: int):
+        super(DotProductSimilarity, self).__init__()
+        self.bands = bands
+        self.rows = rows
+        
+    def sim(self, v1, v2):
+        return v1.dot(v2)
+    
+    def dist(self, v1, v2):
+        pass
+    
+    def signature(self, X: torch.Tensor):
+        """
+        :return: signature matrix with shape (n_samples, bands, rows)
+        """
+        device = X.device
+        N, D = X.shape
 
 
 class LSHDecoder(torch.nn.Module):

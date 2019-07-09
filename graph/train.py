@@ -105,34 +105,23 @@ def run_experiment(args):
         # model.test return - AUC, AP
         return model.test(z, pos_edge_index, neg_edge_index)
 
-    def test_full_graph(z):
+    def test_naive_graph(z):
         t = time.time()
-        if args.lsh:
-            full_adjacency = LSHDecoder(bands=args.lsh_bands,
-                                        rows=args.lsh_rows,
-                                        verbose=True,
-                                        assure_correctness=False,
-                                        sim_thresh=-1.)(z)
-        else:
-            full_adjacency = model.decoder.forward_all(z)
+        full_adjacency = model.decoder.forward_all(z)
 
         print(f"Computing full graph took {time.time() - t} seconds.")
         print(
             f"Adjacency matrix takes {full_adjacency.element_size() * full_adjacency.nelement() / 10 ** 6} MB of memory.")
 
-        if args.lsh:
-            precision, recall = sparse_precision_recall(data, full_adjacency)
-        else:
-            precision, recall = dense_precision_recall(data, full_adjacency, args.min_sim)
+        precision, recall = dense_precision_recall(data, full_adjacency, args.min_sim)
 
         print(f"Predicted full adjacency matrix has precision {precision} and recall {recall}!")
         return precision, recall
     
-    def test_compare_lsh_naive_graphs(z, sim_threshold=0.99, assure_correctness=True):
+    def test_compare_lsh_naive_graphs(z, assure_correctness=True):
         """
 
         :param z:
-        :param sim_threshold:
         :param assure_correctness:
         :return:
         """
@@ -151,7 +140,7 @@ def run_experiment(args):
                                         rows=args.lsh_rows,
                                         verbose=True,
                                         assure_correctness=assure_correctness,
-                                        sim_thresh=sim_threshold)(z)
+                                        sim_thresh=args.min_sim)(z)
 
         print("__________________________________LSH Graph Computation KPI__________________________________________")
         # Todo: adjust the memory computation of sparse matrix -- so far leads to same result as dense version
@@ -161,7 +150,7 @@ def run_experiment(args):
 
         print("________________________________________Precision-Recall_____________________________________________")
         # 1) Evaluation: Both Adjacency matrices against ground truth graph
-        naive_precision, naive_recall = dense_precision_recall(data, naive_adjacency, sim_threshold) # args.min_sim
+        naive_precision, naive_recall = dense_precision_recall(data, naive_adjacency, args.min_sim) # args.min_sim
 
         lsh_precision, lsh_recall = sparse_precision_recall(data, lsh_adjacency)
 
@@ -170,9 +159,8 @@ def run_experiment(args):
 
         print("_____________________________Comparison Sparse vs Dense______________________________________________")
         # 2) Evation: Compare both adjacency matrices against each other
-        compare_precision, compare_recall = sparse_v_dense_precision_recall(naive_adjacency, lsh_adjacency, sim_threshold)
+        compare_precision, compare_recall = sparse_v_dense_precision_recall(naive_adjacency, lsh_adjacency, args.min_sim)
         print(f"LSH sparse matrix has {compare_precision} precision and {compare_recall} recall w.r.t. the naively generated dense matrix!")
-        #
 
         return naive_precision, naive_recall, lsh_precision, lsh_recall, compare_precision, compare_precision
 
@@ -215,7 +203,7 @@ def run_experiment(args):
 
     if not args.lsh:
         # Compute precision recall w.r.t the ground truth graph
-        graph_precision, graph_recall = test_full_graph(latent_embeddings)
+        graph_precision, graph_recall = test_naive_graph(latent_embeddings)
 
     else:
         # Evaluation Logic:
@@ -266,7 +254,7 @@ if __name__ == '__main__':
                         choices=['dot', 'l2', 'cosine'])
 
     # Similarity-Threshold
-    parser.add_argument('--min_sim', type=float, default=0.73,
+    parser.add_argument('--min-sim', type=float, default=0.99,
                         help="Specify the min. similarity threshold for the dense-full-adjacency-matrix")
     parser.add_argument('--grid-search', action="store_true", default=False, help="Perform Grid-Search if selected")
 
