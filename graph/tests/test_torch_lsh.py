@@ -23,7 +23,7 @@ class TestCosineSimilarity(unittest.TestCase):
 		sim = CosineSimilarity(bands, rows)
 		signature_matrix = sim.signature(X)
 
-		self.assertEqual(list(signature_matrix.size()), [N, bands, rows])
+		self.assertEqual(list(signature_matrix.size()), [bands, rows, N, ])
 
 
 
@@ -47,20 +47,16 @@ class TestLSHDecoder(unittest.TestCase):
 						[1.0, 0.0],
 						[0.05, 0.9]
 						], dtype=np.float32)
-		emb = np.random.normal(size=(100000, 128)).astype(np.float32)
+		#emb = np.random.normal(size=(100000, 128)).astype(np.float32)
 		emb_tensor = torch.tensor(emb)
 
-		dec = LSHDecoder(bands=20, rows=5, verbose=True)
+		dec = LSHDecoder(bands=20, rows=5, verbose=False)
 		adj = dec(emb_tensor)
 		indices = adj.coalesce().indices().t().detach().numpy()  
 		#print(indices)
 
 		self.assertTrue(len(indices) == 2)
 		self.assertTrue([0, 3] in indices and [3, 0] in indices)
-
-	def test_true(self):
-
-  		self.assertEqual(True, False)
 
 
 

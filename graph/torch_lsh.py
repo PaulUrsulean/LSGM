@@ -43,7 +43,7 @@ class CosineSimilarity(LSHDistanceMetric):
 
     def signature(self, X: torch.Tensor):
         """
-        :return: signature matrix with shape (n_samples, bands, rows)
+        :return: signature matrix with shape (bands, rows, n_samples)
         """
         device = X.device
         N, D = X.shape
