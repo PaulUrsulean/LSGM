@@ -55,7 +55,7 @@ def evaluate_edges(pred, true):
         if conn in true:
             sum += 1.0
                 
-    precision = sum / len(pred) if len(pred) != 0 else 0
+    precision = (sum / len(pred)) if len(pred) != 0 else 0
     
     sum = 0.0
     
@@ -63,7 +63,7 @@ def evaluate_edges(pred, true):
         if conn in pred:
             sum += 1.0        
 
-    recall = sum / len(true) if len(pred) != 0 else 0
+    recall = (sum / len(true)) if len(pred) != 0 else 0
     return precision, recall
 
 
