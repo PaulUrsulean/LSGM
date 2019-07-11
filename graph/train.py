@@ -5,40 +5,17 @@ import pickle
 import sys
 import time
 
-import torch_geometric.transforms as T
-from torch_geometric.datasets import Planetoid, CoraFull, Coauthor
 from torch_geometric.nn import GAE, VGAE
 
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 
 from graph.utils import sparse_precision_recall, dense_precision_recall, sparse_v_dense_precision_recall, \
-    sample_percentile
+    sample_percentile, load_data
 
 from graph.early_stopping import EarlyStopping
 from graph.modules import *
 
 from graph.torch_lsh import LSHDecoder
-
-
-def load_data(dataset_name):
-    """ 
-    Loads required data set and normalizes features.
-    Implemented data sets are any of type Planetoid and Reddit.
-    :param dataset_name: Name of data set
-    :return: Tuple of dataset and extracted graph
-    """
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset_name)
-
-    if dataset_name == 'cora_full':
-        dataset = CoraFull(path, T.NormalizeFeatures())
-    elif dataset_name.lower() == 'coauthor':
-        dataset = Coauthor(path, 'Physics', T.NormalizeFeatures())
-    else:
-        dataset = Planetoid(path, dataset_name, T.NormalizeFeatures())
-
-    print(f"Loading data set {dataset_name} from: ", path)
-    data = dataset[0]  # Extract graph
-    return dataset, data
 
 
 def run_experiment(args):
@@ -242,6 +219,65 @@ def run_experiment(args):
         # results = np.append(np_result_file, args.dataset, args.lsh_bands, args.lsh_rows)
 
 
+def run_grid_search(args):
+    print("Performing Grid-Search")
+    # Creating unique Grid-Search Filename
+    timestr = time.strftime("%Y-%m-%d_%H-%M-%S")
+    results_folder = osp.join(osp.dirname(osp.abspath(__file__)), 'results', timestr)
+    if not osp.isdir(results_folder):
+        os.makedirs(results_folder)
+    # We don't need to run grid search over all datasets, but for each
+    # dataset because they likely have different optimal hyperparams
+    datasets = ["CiteSeer", "Cora"]
+    distance_measures = ['cosine', 'dot']
+    # Grid-Search Parameters
+    percentiles = [0.9, 0.99, 0.999, 0.9999, 0.99999, 0.999999, 0.9999999]
+    lsh_bands = [2, 4, 8, 16, 32, 48]
+    lsh_rows = [196, 128, 64, 32, 16, 8, 4]
+    for percentile in percentiles:
+        args.min_sim = percentile
+        for dset in datasets:
+
+            train_from_scratch = True
+            args.dataset = dset
+
+            for dist in distance_measures:
+                args.min_sim_absolute_value = None
+                args.decoder = dist
+
+                for bands in lsh_bands:
+                    args.lsh_bands = bands
+
+                    for rows in lsh_rows:
+                        args.lsh_rows = rows
+
+                        print("Performing combination: ", args.dataset, args.decoder, args.lsh_bands, args.lsh_rows)
+
+                        if train_from_scratch:
+                            args.load_model = False
+                            args.use_early_stopping = False
+                        else:
+                            args.load_model = True
+                            args.use_early_stopping = True
+                            args.early_stopping_patience = 0
+
+                        results = run_experiment(args)
+                        train_from_scratch = False
+
+                        print("_______________________________Store Results______________________________")
+
+                        filename = osp.join(results_folder,
+                                            "GS_" + dset +
+                                            "_" + dist +
+                                            "_" + str(bands) +
+                                            "_" + str(rows) +
+                                            "_" + str(percentile) + ".pkl")
+
+                        with open(filename, "wb") as f:
+                            pickle.dump(results, f)
+                        print("Stored Results\n\n")
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
@@ -281,62 +317,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.grid_search and args.lsh:
-
-        print("Performing Grid-Search")
-        # Creating unique Grid-Search Filename
-        timestr = time.strftime("%Y-%m-%d_%H-%M-%S")
-        results_folder = osp.join(osp.dirname(osp.abspath(__file__)), 'results', timestr)
-        if not osp.isdir(results_folder):
-            os.makedirs(results_folder)
-
-        # We don't need to run grid search over all datasets, but for each 
-        # dataset because they likely have different optimal hyperparams
-        datasets = ["CiteSeer", "Cora"]
-        distance_measures = ['cosine', 'dot']
-
-        # Grid-Search Parameters
-        lsh_bands = [2, 4, 8, 16, 32, 48]
-        lsh_rows = [196, 128, 64, 32, 16, 8, 4]
-
-        for dset in datasets:
-
-            train_from_scratch = True
-            args.dataset = dset
-
-            for dist in distance_measures:
-                args.min_sim_absolute_value = None
-                args.decoder = dist
-
-                for bands in lsh_bands:
-                    args.lsh_bands = bands
-
-                    for rows in lsh_rows:
-                        args.lsh_rows = rows
-
-                        print("Performing combination: ", args.dataset, args.decoder, args.lsh_bands, args.lsh_rows)
-
-                        if train_from_scratch:
-                            args.load_model = False
-                            args.use_early_stopping = False
-                        else:
-                            args.load_model = True
-                            args.use_early_stopping = True
-                            args.early_stopping_patience = 0
-
-                        results = run_experiment(args)
-                        train_from_scratch = False
-
-                        print("_______________________________Store Results______________________________")
-
-                        filename = osp.join(results_folder,
-                                            "GS_" + dset +
-                                            "_" + dist +
-                                            "_" + str(bands) +
-                                            "_" + str(rows) + ".pkl")
-
-                        with open(filename, "wb") as f:
-                            pickle.dump(results, f)
-                        print("Stored Results\n\n")
+        run_grid_search(args)
 
     elif args.grid_search and not args.lsh:
         print("ERROR: Use the --lsh flag to grid search over LSH parameters")

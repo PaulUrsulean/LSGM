@@ -1,5 +1,9 @@
+from os import path as osp
+
 import numpy as np
 import torch
+from torch_geometric import transforms as T
+from torch_geometric.datasets import CoraFull, Coauthor, Planetoid
 from tqdm import tqdm
 
 
@@ -110,3 +114,24 @@ def sample_percentile(q, matrix_or_embeddings, dist_measure=None, sigmoid=False,
             sample_distances = torch.sigmoid(sample_distances)
 
     return np.percentile(sample_distances.cpu().numpy(), q * 100)
+
+
+def load_data(dataset_name):
+    """
+    Loads required data set and normalizes features.
+    Implemented data sets are any of type Planetoid and Reddit.
+    :param dataset_name: Name of data set
+    :return: Tuple of dataset and extracted graph
+    """
+    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset_name)
+
+    if dataset_name == 'cora_full':
+        dataset = CoraFull(path, T.NormalizeFeatures())
+    elif dataset_name.lower() == 'coauthor':
+        dataset = Coauthor(path, 'Physics', T.NormalizeFeatures())
+    else:
+        dataset = Planetoid(path, dataset_name, T.NormalizeFeatures())
+
+    print(f"Loading data set {dataset_name} from: ", path)
+    data = dataset[0]  # Extract graph
+    return dataset, data
