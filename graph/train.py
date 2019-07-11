@@ -275,6 +275,7 @@ if __name__ == '__main__':
     # Similarity-Threshold
     parser.add_argument('--min-sim', type=float, default=0.99,
                         help="Specify the min. similarity PERCENTILE threshold for both naive and LSH")
+    parser.add_argument('--min-sim-absolute-value', type=float, default=None)
     parser.add_argument('--grid-search', action="store_true", default=False, help="Perform Grid-Search if selected")
 
     args = parser.parse_args()

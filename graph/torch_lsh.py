@@ -2,7 +2,6 @@ import os.path as path
 import sys
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from itertools import combinations
 
 import numpy as np
 import torch
@@ -17,6 +16,10 @@ class LSHDistanceMetric(ABC):
 
     @abstractmethod
     def sim(v1, v2):
+        pass
+
+    @abstractmethod
+    def pairwise_sim(embeddings):
         pass
 
     @abstractmethod
@@ -37,6 +40,10 @@ class CosineSimilarity(LSHDistanceMetric):
 
     def sim(self, v1, v2):
         return F.cosine_similarity(v1, v2, dim=0)
+
+    def pairwise_sim(self, embeddings):
+        embeddings = embeddings / torch.norm(embeddings, dim=1)[:, None]
+        return torch.mm(embeddings, embeddings.t())
 
     def dist(self, v1, v2):
         return 1 - self.sim(v1, v2)
@@ -112,7 +119,6 @@ class LSHDecoder(torch.nn.Module):
     def recover_duplicates(self, signature_matrix, embeddings):
 
         N, D = embeddings.shape
-        pairs_indices = set()
         assert list(signature_matrix.shape) == [self.bands, self.rows, N]
 
         # Don't need to use .cpu().numpy() if we just want to access the data
@@ -121,6 +127,9 @@ class LSHDecoder(torch.nn.Module):
 
         bands_loop = tqdm(range(self.bands), desc="Hashing values in signature matrix") if self.verbose else range(
             self.bands)
+
+        pairs_indices = torch.LongTensor().to(signature_matrix.device)
+        pairs_similarites = torch.FloatTensor().to(signature_matrix.device)
 
         for band in bands_loop:
             hashtable = defaultdict(list)
@@ -139,31 +148,42 @@ class LSHDecoder(torch.nn.Module):
                 if len(duplicates) < 2:
                     continue
 
-                for i, j in combinations(duplicates, 2):
-                    if self.assure_correctness:
+                duplicates_embeddings = embeddings[duplicates]
+                duplicates = torch.Tensor(duplicates)
+                # TODO: More efficient when not assurnig correctness
+                pairwise_sim = self.sim_metric.pairwise_sim(duplicates_embeddings)
 
-                        similarity = self.sim_metric.sim(embeddings[i], embeddings[j])
-                        similarity = similarity.item() if self.sim_metric_str == 'cosine' else torch.sigmoid(
-                            similarity).item()
+                # Remove self loops manually TODO: Only temporary solution
+                diagonal_indices = torch.eye(duplicates.size(0)).nonzero()
+                pairwise_sim[diagonal_indices[:, 0], diagonal_indices[:, 1]] = -np.inf
 
-                        if similarity > self.sim_thresh:
-                            pairs_indices.add((i, j, similarity))
-                            pairs_indices.add((j, i, similarity))
-                    else:
-                        pairs_indices.add((i, j))
-                        pairs_indices.add((j, i))
+                pairs = pairwise_sim >= (self.sim_thresh if self.assure_correctness else -np.inf)
+                nonzero_indices = pairs.nonzero()
+                # Transform into original indices space
+                pairs_similarites = torch.cat((pairs_similarites,
+                                               pairwise_sim[nonzero_indices[:, 0], nonzero_indices[:, 1]]), dim=0)
+                nonzero_indices[:, 0] = duplicates[nonzero_indices[:, 0]]
+                nonzero_indices[:, 1] = duplicates[nonzero_indices[:, 1]]
+                pairs_indices = torch.cat((pairs_indices, nonzero_indices), dim=0)
 
-        pair_data = torch.tensor(list(pairs_indices)).t()
+        return torch.sparse_coo_tensor(
+            indices=pairs_indices.t(),
+            values=pairs_similarites,
+            size=torch.Size([N, N])
+        )
 
-        if self.assure_correctness:
-            sparse_values = torch.FloatTensor(pair_data[-1])
-            pair_data = torch.LongTensor(pair_data[:-1].long())
-        else:
-            sparse_values = torch.ones(pair_data.shape[1])
+        # pair_data = torch.tensor(list(pairs_indices)).t()
 
-        return torch.sparse.FloatTensor(pair_data,
-                                        sparse_values,
-                                        torch.Size([N, N]))
+    #
+    # if self.assure_correctness:
+    #    sparse_values = torch.FloatTensor(pair_data[-1])
+    #    pair_data = torch.LongTensor(pair_data[:-1].long())
+    # else:
+    #    sparse_values = torch.ones(pair_data.shape[1])
+    #
+    # return torch.sparse.FloatTensor(pair_data,
+    #                                sparse_values,
+    #                                torch.Size([N, N]))
 
     def forward(self, Z):
         signature_matrix = self.sim_metric.signature(Z)

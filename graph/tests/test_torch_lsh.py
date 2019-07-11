@@ -1,12 +1,12 @@
-import unittest
-import torch
-import numpy as np
-from os.path import dirname, abspath
 import sys
-from itertools import combinations
+import unittest
+from os.path import dirname, abspath
+
+import numpy as np
+import torch
+import torch.nn.functional as F
 
 sys.path.append(dirname(dirname(dirname(abspath(__file__)))))
-
 
 from graph.torch_lsh import LSHDecoder
 from graph.torch_lsh import CosineSimilarity
@@ -14,50 +14,56 @@ from graph.torch_lsh import CosineSimilarity
 
 class TestCosineSimilarity(unittest.TestCase):
 
+    def test_pairwise_sim(self):
+        n_nodes, latent_dim = 100, 16
+        embeddings = torch.randn((n_nodes, latent_dim))
+        sim = CosineSimilarity(0, 0)
 
-	def test_signature_matrix_shape(self):
-		N, D = 100, 16
-		bands, rows = 12, 6
+        # Test Shape
+        pairwise_sim = sim.pairwise_sim(embeddings)
+        self.assertEqual(pairwise_sim.size(), torch.Size([n_nodes, n_nodes]))
 
-		X = torch.randn((N, D))
-		sim = CosineSimilarity(bands, rows)
-		signature_matrix = sim.signature(X)
+        # Compare actual values
+        sim_ground_truth = torch.empty(size=(n_nodes, n_nodes))
+        for i in range(n_nodes):
+            for j in range(n_nodes):
+                sim_ground_truth[i, j] = F.cosine_similarity(embeddings[i], embeddings[j], dim=0)
+        self.assertTrue(torch.allclose(pairwise_sim, sim_ground_truth, atol=1e-7))
 
-		self.assertEqual(list(signature_matrix.size()), [bands, rows, N, ])
+    def test_signature_matrix_shape(self):
+        N, D = 100, 16
+        bands, rows = 12, 6
 
+        X = torch.randn((N, D))
+        sim = CosineSimilarity(bands, rows)
+        signature_matrix = sim.signature(X)
 
+        self.assertEqual(list(signature_matrix.size()), [bands, rows, N, ])
 
 
 class TestLSHDecoder(unittest.TestCase):
 
-	def test_indices_to_connections(self):
-		dec = LSHDecoder()
-		indices = [1, 7, 10]
-		connections = combinations(indices, 2)
+    def test_returns_correct_items(self):
+        emb = np.array([[0.0, 1.0],
+                        [0.0, -1.0],
+                        [1.0, 0.0],
+                        [0.05, 0.9]
+                        ], dtype=np.float32)
+        emb_tensor = torch.tensor(emb)
 
-		true_connections = [(1, 7), (7, 1), (1, 10), (10, 1), (7, 10), (10, 7)]
+        dec = LSHDecoder(bands=2, rows=10, verbose=False)
+        adj = dec(emb_tensor)
+        indices = adj.coalesce().indices().t().detach().numpy()
 
-		self.assertEqual(set(connections), set(true_connections))
+        self.assertTrue(len(indices) == 2)
+        self.assertTrue([0, 3] in indices and [3, 0] in indices)
 
+    def test_does_not_fail_on_large_input(self):
+        emb = np.random.normal(size=(100000, 128)).astype(np.float32)
+        emb_tensor = torch.tensor(emb)
 
-	def test_returns_correct_items(self):
-
-		emb = np.array([[0.0, 1.0],
-						[0.0, -1.0],
-						[1.0, 0.0],
-						[0.05, 0.9]
-						], dtype=np.float32)
-		#emb = np.random.normal(size=(100000, 128)).astype(np.float32)
-		emb_tensor = torch.tensor(emb)
-
-		dec = LSHDecoder(bands=20, rows=5, verbose=False)
-		adj = dec(emb_tensor)
-		indices = adj.coalesce().indices().t().detach().numpy()  
-		#print(indices)
-
-		self.assertTrue(len(indices) == 2)
-		self.assertTrue([0, 3] in indices and [3, 0] in indices)
-
+        dec = LSHDecoder(bands=2, rows=32, verbose=True)
+        dec(emb_tensor)
 
 
 if __name__ == '__main__':
