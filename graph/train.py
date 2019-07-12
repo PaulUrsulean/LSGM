@@ -196,11 +196,21 @@ def run_experiment(args):
     if not args.lsh:
         # Compute precision recall w.r.t the ground truth graph
         graph_precision, graph_recall = test_naive_graph(latent_embeddings)
-
+        del model
+        del encoder
+        del decoder
+        torch.cuda.empty_cache()
     else:
         # Precision w.r.t. the generated graph
-        naive_precision, naive_recall, naive_time, naive_size, lsh_precision, lsh_recall, lsh_time, lsh_size, compare_precision, compare_recall = test_compare_lsh_naive_graphs(
+        naive_precision, naive_recall, naive_time, naive_size, lsh_precision, \
+        lsh_recall, lsh_time, lsh_size, \
+        compare_precision, compare_recall = test_compare_lsh_naive_graphs(
             latent_embeddings)
+
+        del model
+        del encoder
+        del decoder
+        torch.cuda.empty_cache()
 
         return {'args': args,
                 'test_auc': test_auc,
@@ -251,11 +261,13 @@ def run_grid_search(args):
                     for rows in lsh_rows:
                         args.lsh_rows = rows
 
-                        print("Performing combination: ", args.dataset, args.decoder, args.lsh_bands, args.lsh_rows)
+                        print("Performing combination: ", args.dataset, args.decoder, args.lsh_bands, args.lsh_rows,
+                              args.min_sim)
 
                         if train_from_scratch:
                             args.load_model = False
-                            args.use_early_stopping = False
+                            args.early_stopping_patience = 200
+                            # args.use_early_stopping = False
                         else:
                             args.load_model = True
                             args.use_early_stopping = True
