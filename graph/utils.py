@@ -76,7 +76,7 @@ def extract_all_edges(data):
                       data.train_pos_edge_index), 1).t().detach().cpu().numpy()
 
 
-def sample_percentile(q, matrix_or_embeddings, dist_measure=None, sigmoid=False, sample_size=200):
+def sample_percentile(q, matrix_or_embeddings, dist_measure=None, sigmoid=False, sample_size=20000):
     """
     :param q: The percentile to look for the corresponding value in the pairs. In [0, 1]
     :param matrix_or_embeddings: As the name suggests, this param can either be the dense (N, N) adjacency matrix with values already computed, or the (N, D) matrix of embeddings.

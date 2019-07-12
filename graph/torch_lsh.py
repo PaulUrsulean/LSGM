@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 
 import numpy as np
+import scipy.sparse as sp
 import torch
 import torch.nn.functional as F
 from torch.distributions import MultivariateNormal
@@ -131,6 +132,8 @@ class LSHDecoder(torch.nn.Module):
         pairs_indices = torch.LongTensor().to(signature_matrix.device)
         pairs_similarites = torch.FloatTensor().to(signature_matrix.device)
 
+        print(f"Size of Signature: {signature.element_size() * signature.nelement() / 10 ** 6}")
+
         for band in bands_loop:
             hashtable = defaultdict(list)
 
@@ -150,23 +153,30 @@ class LSHDecoder(torch.nn.Module):
 
                 duplicates_embeddings = embeddings[duplicates]
                 duplicates = torch.Tensor(duplicates)
-                # TODO: More efficient when not assurnig correctness
+
+                # TODO: Maybe skip that step if we don't want to assure correctness
                 pairwise_sim = self.sim_metric.pairwise_sim(duplicates_embeddings)
 
-                # Remove self loops manually TODO: Only temporary solution
-                diagonal_indices = torch.eye(duplicates.size(0)).nonzero()
-                pairwise_sim[diagonal_indices[:, 0], diagonal_indices[:, 1]] = -np.inf
+                # Remove self loops manually
+                diagonal_indices = np.diag_indices(duplicates.size(0))
+                pairwise_sim[diagonal_indices[0], diagonal_indices[1]] = -np.inf
 
+                # Calculate connections with high enough similarity
                 pairs = pairwise_sim >= (self.sim_thresh if self.assure_correctness else -np.inf)
+
+                # Nonzero values are now wanted connections, add to existing ones
                 nonzero_indices = pairs.nonzero()
-                # Transform into original indices space
+
+                # Add distances to array. TODO: Potentially just add 1 and use LongTensor instead of FloatTensor
                 pairs_similarites = torch.cat((pairs_similarites,
                                                pairwise_sim[nonzero_indices[:, 0], nonzero_indices[:, 1]]), dim=0)
+
+                # Convert local indices (only ones in bucket) to global node indices
                 nonzero_indices[:, 0] = duplicates[nonzero_indices[:, 0]]
                 nonzero_indices[:, 1] = duplicates[nonzero_indices[:, 1]]
                 pairs_indices = torch.cat((pairs_indices, nonzero_indices), dim=0)
 
-        return torch.sparse_coo_tensor(
+        return torch.sparse.FloatTensor(
             indices=pairs_indices.t(),
             values=pairs_similarites,
             size=torch.Size([N, N])

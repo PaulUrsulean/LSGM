@@ -110,9 +110,10 @@ def run_experiment(args):
         naive_adjacency = model.decoder.forward_all(z, sigmoid=(args.decoder == 'dot'))
         naive_time = time.time() - t
         naive_size = naive_adjacency.element_size() * naive_adjacency.nelement() / 10 ** 6
-
+        #del naive_adjacency
+        #torch.cuda.empty_cache()
         if args.min_sim_absolute_value is None:
-            args.min_sim_absolute_value = sample_percentile(args.min_sim, naive_adjacency)
+            args.min_sim_absolute_value = sample_percentile(args.min_sim, z, dist_measure=args.decoder)
 
         print("______________________________Naive Graph Computation KPI____________________________________________")
         print(f"Computing naive graph took {naive_time} seconds.")
