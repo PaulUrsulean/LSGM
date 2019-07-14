@@ -299,7 +299,7 @@ if __name__ == '__main__':
 
     # Dataset
     parser.add_argument('--dataset', type=str, default='PubMed', help="Data Set Name",
-                        choices=["PubMed", "Cora", "CiteSeer", "Coauthor"])
+                        choices=["PubMed", "Cora", "CiteSeer", "Coauthor", "Reddit", "Amazon"])
 
     # Training
     parser.add_argument('--epochs', type=int, default=500, help="Number of Epochs in Training")
