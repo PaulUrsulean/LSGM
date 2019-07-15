@@ -9,8 +9,7 @@ from torch_geometric.nn import GAE, VGAE
 
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 
-from graph.utils import sparse_precision_recall, dense_precision_recall, sparse_v_dense_precision_recall, \
-    sample_percentile, load_data, sampled_dense_precision_recall
+from graph.utils import *
 
 from graph.early_stopping import EarlyStopping
 from graph.modules import *
@@ -84,49 +83,43 @@ def run_experiment(args):
         # model.test return - AUC, AP
         return model.test(z, pos_edge_index, neg_edge_index)
 
-    def test_naive_graph(z):
-        t = time.time()
-        full_adjacency = model.decoder.forward_all(z, sigmoid=(args.decoder == 'dot'))
+    def test_naive_graph(z, sample_size=1000):
+        
+        if args.sample_dense_evaluation:
+            graph_type = "sampled"
+            z_sample, index_mapping = sample_graph(z, sample_size)
+            t = time.time()
+            adjacency = model.decoder.forward_all(z_sample, sigmoid=(args.decoder == 'dot'))
+        else:
+            graph_type = "full"
+            t = time.time()
+            adjacency = model.decoder.forward_all(z, sigmoid=(args.decoder == 'dot'))
+            
+        print(f"Computing {graph_type} graph took {time.time() - t} seconds.")
+        print(
+            f"Adjacency matrix takes {adjacency.element_size() * adjacency.nelement() / 10 ** 6} MB of memory.")
         
         if args.min_sim_absolute_value is None:
-            args.min_sim_absolute_value, _ = sample_percentile(args.min_sim, full_adjacency, dist_measure=args.decoder)
+            args.min_sim_absolute_value, _ = sample_percentile(args.min_sim, adjacency, dist_measure=args.decoder, sample_size=sample_size)
 
-        print(f"Computing full graph took {time.time() - t} seconds.")
-        print(
-            f"Adjacency matrix takes {full_adjacency.element_size() * full_adjacency.nelement() / 10 ** 6} MB of memory.")
+        if args.sample_dense_evaluation:
+            precision, recall = sampled_dense_precision_recall(data, adjacency, index_mapping, args.min_sim_absolute_value)
+        else:
+            precision, recall = dense_precision_recall(data, adjacency, args.min_sim_absolute_value)
 
-        precision, recall = dense_precision_recall(data, full_adjacency, args.min_sim_absolute_value)
-
-        print(f"Predicted full adjacency matrix has precision {precision} and recall {recall}!")
+        print("Predicted {} adjacency matrix has precision {} and recall {}!".format(graph_type, precision, recall))
+        
         return precision, recall
     
-    def test_sampled_naive_graph(z, sample_size=1000):
+    def sample_graph(z, sample_size):
         N, D = z.shape
         
         sample_size = min(sample_size, N)
         sample_ix = np.random.choice(np.arange(N), size=sample_size, replace=False)
         
-        z_sample = z[sample_ix]
-        index_mapping = {i:sample_ix[i] for i in np.arange(sample_size)}
-        
-        t = time.time()
-        
-        sampled_adjacency = model.decoder.forward_all(z_sample, sigmoid=(args.decoder == 'dot'))
-        
-        print(f"Computing sampled graph took {time.time() - t} seconds.")
-        print(
-            f"Sampled adjacency matrix takes {sampled_adjacency.element_size() * sampled_adjacency.nelement() / 10 ** 6} MB of memory.")
-        
-        if args.min_sim_absolute_value is None:
-            
-            # Uses same sample as sampled_adjacency
-            args.min_sim_absolute_value, _ = sample_percentile(args.min_sim, sampled_adjacency, dist_measure=args.decoder, sample_size=sample_size)
-            
-        precision, recall = sampled_dense_precision_recall(data, sampled_adjacency, index_mapping, args.min_sim_absolute_value)
-        
-        print(f"Predicted sampled adjacency matrix has precision {precision} and recall {recall}!")
-        
-        return precision, recall
+        # Returns the sampled embeddings, and a mapping from their indices to the originals
+        return z[sample_ix], {i:sample_ix[i] for i in np.arange(sample_size)}
+
 
     def test_compare_lsh_naive_graphs(z, assure_correctness=True):
         """
@@ -141,8 +134,7 @@ def run_experiment(args):
         naive_adjacency = model.decoder.forward_all(z, sigmoid=(args.decoder == 'dot'))
         naive_time = time.time() - t
         naive_size = naive_adjacency.element_size() * naive_adjacency.nelement() / 10 ** 6
-        #del naive_adjacency
-        #torch.cuda.empty_cache()
+
         if args.min_sim_absolute_value is None:
             args.min_sim_absolute_value, _ = sample_percentile(args.min_sim, z, dist_measure=args.decoder)
 
@@ -161,7 +153,6 @@ def run_experiment(args):
         lsh_size = lsh_adjacency.element_size() * lsh_adjacency._nnz() / 10 ** 6
 
         print("__________________________________LSH Graph Computation KPI__________________________________________")
-        # Todo: adjust the memory computation of sparse matrix -- so far leads to same result as dense version
         print(f"Computing LSH graph took {lsh_time} seconds.")
         print(f"Sparse adjacency matrix takes {lsh_size} MB of memory.")
 
@@ -370,8 +361,9 @@ if __name__ == '__main__':
     parser.add_argument('--min-sim-absolute-value', type=float, default=None)
     parser.add_argument('--grid-search', action="store_true", default=False, help="Perform Grid-Search if selected")
     
-    # Other
+    # Miscellaneous
     parser.add_argument('--save-embeddings', action="store_true", help="Whether to store embeddings tensor in graph/embeddings")
+    parser.add_argument('--sample-dense-evaluation', action="store_true", help="Whether to use sampling in dense graph eval. Use when the full graph doesn't fit in the VRAM")
     
 
     args = parser.parse_args()
