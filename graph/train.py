@@ -10,7 +10,7 @@ from torch_geometric.nn import GAE, VGAE
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 
 from graph.utils import sparse_precision_recall, dense_precision_recall, sparse_v_dense_precision_recall, \
-    sample_percentile, load_data
+    sample_percentile, load_data, sampled_dense_precision_recall
 
 from graph.early_stopping import EarlyStopping
 from graph.modules import *
@@ -87,14 +87,45 @@ def run_experiment(args):
     def test_naive_graph(z):
         t = time.time()
         full_adjacency = model.decoder.forward_all(z, sigmoid=(args.decoder == 'dot'))
+        
+        if args.min_sim_absolute_value is None:
+            args.min_sim_absolute_value, _ = sample_percentile(args.min_sim, full_adjacency, dist_measure=args.decoder)
 
         print(f"Computing full graph took {time.time() - t} seconds.")
         print(
             f"Adjacency matrix takes {full_adjacency.element_size() * full_adjacency.nelement() / 10 ** 6} MB of memory.")
 
-        precision, recall = dense_precision_recall(data, full_adjacency, args.min_sim, args.decoder)
+        precision, recall = dense_precision_recall(data, full_adjacency, args.min_sim_absolute_value)
 
         print(f"Predicted full adjacency matrix has precision {precision} and recall {recall}!")
+        return precision, recall
+    
+    def test_sampled_naive_graph(z, sample_size=1000):
+        N, D = z.shape
+        
+        sample_size = min(sample_size, N)
+        sample_ix = np.random.choice(np.arange(N), size=sample_size, replace=False)
+        
+        z_sample = z[sample_ix]
+        index_mapping = {i:sample_ix[i] for i in np.arange(sample_size)}
+        
+        t = time.time()
+        
+        sampled_adjacency = model.decoder.forward_all(z_sample, sigmoid=(args.decoder == 'dot'))
+        
+        print(f"Computing sampled graph took {time.time() - t} seconds.")
+        print(
+            f"Sampled adjacency matrix takes {sampled_adjacency.element_size() * sampled_adjacency.nelement() / 10 ** 6} MB of memory.")
+        
+        if args.min_sim_absolute_value is None:
+            
+            # Uses same sample as sampled_adjacency
+            args.min_sim_absolute_value, _ = sample_percentile(args.min_sim, sampled_adjacency, dist_measure=args.decoder, sample_size=sample_size)
+            
+        precision, recall = sampled_dense_precision_recall(data, sampled_adjacency, index_mapping, args.min_sim_absolute_value)
+        
+        print(f"Predicted sampled adjacency matrix has precision {precision} and recall {recall}!")
+        
         return precision, recall
 
     def test_compare_lsh_naive_graphs(z, assure_correctness=True):
@@ -113,7 +144,7 @@ def run_experiment(args):
         #del naive_adjacency
         #torch.cuda.empty_cache()
         if args.min_sim_absolute_value is None:
-            args.min_sim_absolute_value = sample_percentile(args.min_sim, z, dist_measure=args.decoder)
+            args.min_sim_absolute_value, _ = sample_percentile(args.min_sim, z, dist_measure=args.decoder)
 
         print("______________________________Naive Graph Computation KPI____________________________________________")
         print(f"Computing naive graph took {naive_time} seconds.")
@@ -136,8 +167,7 @@ def run_experiment(args):
 
         print("________________________________________Precision-Recall_____________________________________________")
         # 1) Evaluation: Both Adjacency matrices against ground truth graph
-        naive_precision, naive_recall = dense_precision_recall(data, naive_adjacency, args.min_sim_absolute_value,
-                                                               args.decoder)
+        naive_precision, naive_recall = dense_precision_recall(data, naive_adjacency, args.min_sim_absolute_value)
 
         lsh_precision, lsh_recall = sparse_precision_recall(data, lsh_adjacency)
 
@@ -193,6 +223,14 @@ def run_experiment(args):
 
     # Evaluate full graph
     latent_embeddings = model.encode(node_features, train_pos_edge_index)
+    
+    # Save embeddings to embeddings folder if flag is set
+    if args.save_embeddings:
+        embeddings_folder = osp.join(osp.dirname(osp.abspath(__file__)), 'embeddings')
+        if not osp.isdir(embeddings_folder):
+            os.makedirs(embeddings_folder)
+        
+        torch.save(latent_embeddings, osp.join(embeddings_folder, args.dataset + "_" + args.decoder + ".pt"))
 
     if not args.lsh:
         # Compute precision recall w.r.t the ground truth graph
@@ -206,7 +244,7 @@ def run_experiment(args):
         naive_precision, naive_recall, naive_time, naive_size, lsh_precision, \
         lsh_recall, lsh_time, lsh_size, \
         compare_precision, compare_recall = test_compare_lsh_naive_graphs(
-            latent_embeddings)
+            latent_embeddings) 
 
         del model
         del encoder
@@ -267,8 +305,13 @@ def run_grid_search(args):
 
                         if train_from_scratch:
                             args.load_model = False
-                            args.early_stopping_patience = 200
-                            # args.use_early_stopping = False
+                            
+#                             args.early_stopping_patience = 200
+
+                            # Training logic still takes most recent model that improved val error even with
+                            # use_early_stopping=False, it just doesn't stop after x stagnations
+                            args.use_early_stopping = False
+            
                         else:
                             args.load_model = True
                             args.use_early_stopping = True
@@ -305,7 +348,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=500, help="Number of Epochs in Training")
     parser.add_argument('--lr', type=float, default=0.001, help="Learning Rate")
     # Early Stopping
-    parser.add_argument('--use-early-stopping', default="True")
+    parser.add_argument('--use-early-stopping', action='store_true')
     parser.add_argument('--early-stopping-patience', type=int, default=100)
 
     # Model Specific
@@ -326,6 +369,10 @@ if __name__ == '__main__':
                         help="Specify the min. similarity PERCENTILE threshold for both naive and LSH")
     parser.add_argument('--min-sim-absolute-value', type=float, default=None)
     parser.add_argument('--grid-search', action="store_true", default=False, help="Perform Grid-Search if selected")
+    
+    # Other
+    parser.add_argument('--save-embeddings', action="store_true", help="Whether to store embeddings tensor in graph/embeddings")
+    
 
     args = parser.parse_args()
 
