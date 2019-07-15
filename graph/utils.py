@@ -1,10 +1,14 @@
+import math
 from os import path as osp
 
 import numpy as np
 import torch
 from torch_geometric import transforms as T
-from torch_geometric.datasets import CoraFull, Coauthor, Planetoid
+from torch_geometric.datasets import CoraFull, Coauthor, Planetoid, Reddit
+from torch_geometric.utils import to_undirected
 from tqdm import tqdm
+
+from graph.datasets.amazon import Amazon
 
 
 def sparse_precision_recall(data, sparse_matrix, verbose=True):
@@ -172,8 +176,13 @@ def load_data(dataset_name):
         dataset = CoraFull(path, T.NormalizeFeatures())
     elif dataset_name.lower() == 'coauthor':
         dataset = Coauthor(path, 'Physics', T.NormalizeFeatures())
+    elif dataset_name.lower() == 'reddit':
+        dataset = Reddit(path, T.NormalizeFeatures())
+    elif dataset_name.lower() == 'amazon':
+        dataset = Amazon(path)
     else:
         dataset = Planetoid(path, dataset_name, T.NormalizeFeatures())
+
 
     print(f"Loading data set {dataset_name} from: ", path)
     data = dataset[0]  # Extract graph
