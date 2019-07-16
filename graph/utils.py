@@ -1,14 +1,16 @@
 import math
+import random
 from os import path as osp
 
 import numpy as np
 import torch
 from torch_geometric import transforms as T
 from torch_geometric.datasets import CoraFull, Coauthor, Planetoid, Reddit
+from torch_geometric.nn.models.autoencoder import negative_sampling
 from torch_geometric.utils import to_undirected
 from tqdm import tqdm
 
-from graph.datasets.amazon import Amazon
+from graph.datasets.snap import Amazon, Slashdot, Epinions
 
 
 def sparse_precision_recall(data, sparse_matrix, verbose=True):
@@ -32,38 +34,39 @@ def dense_precision_recall(data, dense_matrix, min_sim, verbose=True):
 
     pred = set(zip(pred[0], pred[1]))
     true = set(zip(all_edges[:, 0], all_edges[:, 1]))
-    
+
     if verbose:
         print(f"Dense Precision-Recall: {len(pred)} edges detected out of {len(true)} in total.")
-        
+
     return evaluate_edges(pred, true, verbose)
+
 
 def sampled_dense_precision_recall(data, sampled_dense_matrix, ix_mapping, min_sim, verbose=True):
     if verbose:
         print("Compute Sampled Dense-Precision-Recall")
-        
+
     embedding_indices = set(ix_mapping.values())
     relevant_edges = []
-    
+
     for edge in extract_all_edges(data):
         if edge[0] in embedding_indices and edge[1] in embedding_indices:
             relevant_edges.append(edge)
-            
+
     relevant_edges = np.array(relevant_edges)
-            
+
     pred = (sampled_dense_matrix.detach().cpu().numpy() > min_sim).nonzero()
-    
+
     # Apply index transformation to the retrieved indices
     pred = np.vectorize(ix_mapping.get)(pred)
-    
+
     pred = set(zip(pred[0], pred[1]))
     true = set(zip(relevant_edges[:, 0], relevant_edges[:, 1]))
-    
+
     if verbose:
         print(f"Dense Precision-Recall: {len(pred)} edges detected out of {len(true)} in total.")
-    
+
     return evaluate_edges(pred, true, verbose)
-    
+
     # Must remove non-relevant indices from all_edges. Might also try to multiply recall by len(data)/len(ix_mapping) to re-normalize it.
 
 
@@ -90,7 +93,7 @@ def evaluate_edges(pred, true, verbose=True):
     sum = 0.0
 
     prec_loop = pred if not verbose else tqdm(pred, desc="Checking precision")
-    
+
     for conn in prec_loop:
         if conn in true:
             sum += 1.0
@@ -98,7 +101,7 @@ def evaluate_edges(pred, true, verbose=True):
     precision = (sum / len(pred)) if len(pred) != 0 else 0
 
     sum = 0.0
-    
+
     rec_loop = true if not verbose else tqdm(true, desc="Checking recall")
 
     for conn in rec_loop:
@@ -122,7 +125,7 @@ def sample_percentile(q, matrix_or_embeddings, dist_measure=None, sigmoid=False,
     :param dist_measure: If given the matrix of embeddings, the distances must be computed directly in this function
     :param sigmoid: Whether to sigmoid computed distances. Only valid if embeddings are given.
     """
-    
+
     if isinstance(q, (list, tuple, np.ndarray)):
         q = np.array(q)
         assert np.all((q >= 0.0) & (q <= 1.0)), "Invalid value inside q"
@@ -134,8 +137,8 @@ def sample_percentile(q, matrix_or_embeddings, dist_measure=None, sigmoid=False,
     N_1, N_2 = matrix_or_embeddings.shape
     sample_size = min(sample_size, int(N_1))
     sample_ix = np.random.choice(np.arange(N_1), size=sample_size, replace=False)
-#     sample_ix_a = np.random.choice(np.arange(N_1), size=sample_size, replace=False)
-#     sample_ix_b = np.random.choice(np.arange(N_1), size=sample_size, replace=False)
+    #     sample_ix_a = np.random.choice(np.arange(N_1), size=sample_size, replace=False)
+    #     sample_ix_b = np.random.choice(np.arange(N_1), size=sample_size, replace=False)
 
     # Matrix case
     if N_1 == N_2:
@@ -146,17 +149,17 @@ def sample_percentile(q, matrix_or_embeddings, dist_measure=None, sigmoid=False,
         assert N_1 > N_2, "Dimensions of embeddings bigger than n_nodes, something might be wrong."
         assert dist_measure in ['cosine', 'dot'], "dist_measure must be set as 'cosine' or 'dot'"
 
-#         sample_a, sample_b = matrix_or_embeddings[sample_ix_a].detach(), matrix_or_embeddings[sample_ix_b].detach()
+        #         sample_a, sample_b = matrix_or_embeddings[sample_ix_a].detach(), matrix_or_embeddings[sample_ix_b].detach()
         sample_embeddings = matrix_or_embeddings[sample_ix].detach()
 
         # If cosine just normalize vectors
         if dist_measure == 'cosine':
             sample_embeddings /= torch.norm(sample_embeddings, dim=1)[:, None]
-#             sample_a /= torch.norm(sample_a, dim=1)[:, None]
-#             sample_b /= torch.norm(sample_b, dim=1)[:, None]
+        #             sample_a /= torch.norm(sample_a, dim=1)[:, None]
+        #             sample_b /= torch.norm(sample_b, dim=1)[:, None]
 
         sample_distances = torch.mm(sample_embeddings, sample_embeddings.t())
-        
+
         if sigmoid:
             sample_distances = torch.sigmoid(sample_distances)
 
