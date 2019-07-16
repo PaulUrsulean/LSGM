@@ -84,7 +84,7 @@ def run_experiment(args):
         return model.test(z, pos_edge_index, neg_edge_index)
 
     def test_naive_graph(z, sample_size=1000):
-        
+
         if args.sample_dense_evaluation:
             graph_type = "sampled"
             z_sample, index_mapping = sample_graph(z, sample_size)
@@ -94,32 +94,33 @@ def run_experiment(args):
             graph_type = "full"
             t = time.time()
             adjacency = model.decoder.forward_all(z, sigmoid=(args.decoder == 'dot'))
-            
+
         print(f"Computing {graph_type} graph took {time.time() - t} seconds.")
         print(
             f"Adjacency matrix takes {adjacency.element_size() * adjacency.nelement() / 10 ** 6} MB of memory.")
-        
+
         if args.min_sim_absolute_value is None:
-            args.min_sim_absolute_value, _ = sample_percentile(args.min_sim, adjacency, dist_measure=args.decoder, sample_size=sample_size)
+            args.min_sim_absolute_value, _ = sample_percentile(args.min_sim, adjacency, dist_measure=args.decoder,
+                                                               sample_size=sample_size)
 
         if args.sample_dense_evaluation:
-            precision, recall = sampled_dense_precision_recall(data, adjacency, index_mapping, args.min_sim_absolute_value)
+            precision, recall = sampled_dense_precision_recall(data, adjacency, index_mapping,
+                                                               args.min_sim_absolute_value)
         else:
             precision, recall = dense_precision_recall(data, adjacency, args.min_sim_absolute_value)
 
         print("Predicted {} adjacency matrix has precision {} and recall {}!".format(graph_type, precision, recall))
-        
+
         return precision, recall
-    
+
     def sample_graph(z, sample_size):
         N, D = z.shape
-        
+
         sample_size = min(sample_size, N)
         sample_ix = np.random.choice(np.arange(N), size=sample_size, replace=False)
-        
-        # Returns the sampled embeddings, and a mapping from their indices to the originals
-        return z[sample_ix], {i:sample_ix[i] for i in np.arange(sample_size)}
 
+        # Returns the sampled embeddings, and a mapping from their indices to the originals
+        return z[sample_ix], {i: sample_ix[i] for i in np.arange(sample_size)}
 
     def test_compare_lsh_naive_graphs(z, assure_correctness=True):
         """
@@ -214,13 +215,13 @@ def run_experiment(args):
 
     # Evaluate full graph
     latent_embeddings = model.encode(node_features, train_pos_edge_index)
-    
+
     # Save embeddings to embeddings folder if flag is set
     if args.save_embeddings:
         embeddings_folder = osp.join(osp.dirname(osp.abspath(__file__)), 'embeddings')
         if not osp.isdir(embeddings_folder):
             os.makedirs(embeddings_folder)
-        
+
         torch.save(latent_embeddings, osp.join(embeddings_folder, args.dataset + "_" + args.decoder + ".pt"))
 
     if not args.lsh:
@@ -235,7 +236,7 @@ def run_experiment(args):
         naive_precision, naive_recall, naive_time, naive_size, lsh_precision, \
         lsh_recall, lsh_time, lsh_size, \
         compare_precision, compare_recall = test_compare_lsh_naive_graphs(
-            latent_embeddings) 
+            latent_embeddings)
 
         del model
         del encoder
@@ -268,41 +269,38 @@ def run_grid_search(args):
         os.makedirs(results_folder)
     # We don't need to run grid search over all datasets, but for each
     # dataset because they likely have different optimal hyperparams
-    datasets = ["CiteSeer", "Cora"]
-    distance_measures = ['cosine', 'dot']
+    datasets = ["Cora", "PubMed", "CiteSeer", "Coauthor"]
+    distance_measures = ['cosine']
     # Grid-Search Parameters
-    percentiles = [0.9, 0.99, 0.999, 0.9999, 0.99999, 0.999999, 0.9999999]
-    lsh_bands = [2, 4, 8, 16, 32, 48]
-    lsh_rows = [196, 128, 64, 32, 16, 8, 4]
-    for percentile in percentiles:
-        args.min_sim = percentile
-        for dset in datasets:
+    percentiles = [0.97, 0.98, 0.995]
+    lsh_bands = [32, 16, 8]
+    lsh_rows = [16, 32, 64, 128, 196]
 
-            train_from_scratch = True
-            args.dataset = dset
 
+    for dset in datasets:
+        train_from_scratch = True
+        args.dataset = dset
+        for percentile in percentiles:
+            args.min_sim = percentile
             for dist in distance_measures:
                 args.min_sim_absolute_value = None
                 args.decoder = dist
-
                 for bands in lsh_bands:
                     args.lsh_bands = bands
-
                     for rows in lsh_rows:
                         args.lsh_rows = rows
-
                         print("Performing combination: ", args.dataset, args.decoder, args.lsh_bands, args.lsh_rows,
                               args.min_sim)
 
                         if train_from_scratch:
                             args.load_model = False
-                            
-#                             args.early_stopping_patience = 200
+
+                            args.early_stopping_patience = 100
 
                             # Training logic still takes most recent model that improved val error even with
                             # use_early_stopping=False, it just doesn't stop after x stagnations
-                            args.use_early_stopping = False
-            
+                            args.use_early_stopping = True
+
                         else:
                             args.load_model = True
                             args.use_early_stopping = True
@@ -360,11 +358,12 @@ if __name__ == '__main__':
                         help="Specify the min. similarity PERCENTILE threshold for both naive and LSH")
     parser.add_argument('--min-sim-absolute-value', type=float, default=None)
     parser.add_argument('--grid-search', action="store_true", default=False, help="Perform Grid-Search if selected")
-    
+
     # Miscellaneous
-    parser.add_argument('--save-embeddings', action="store_true", help="Whether to store embeddings tensor in graph/embeddings")
-    parser.add_argument('--sample-dense-evaluation', action="store_true", help="Whether to use sampling in dense graph eval. Use when the full graph doesn't fit in the VRAM")
-    
+    parser.add_argument('--save-embeddings', action="store_true",
+                        help="Whether to store embeddings tensor in graph/embeddings")
+    parser.add_argument('--sample-dense-evaluation', action="store_true",
+                        help="Whether to use sampling in dense graph eval. Use when the full graph doesn't fit in the VRAM")
 
     args = parser.parse_args()
 
