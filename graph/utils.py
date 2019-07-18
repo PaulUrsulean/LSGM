@@ -10,7 +10,7 @@ from torch_geometric.nn.models.autoencoder import negative_sampling
 from torch_geometric.utils import to_undirected
 from tqdm import tqdm
 
-from graph.datasets.snap import Amazon, Slashdot, Epinions
+from graph.datasets.snap import Amazon
 
 
 def sparse_precision_recall(data, sparse_matrix, verbose=True):
@@ -186,10 +186,9 @@ def load_data(dataset_name):
     else:
         dataset = Planetoid(path, dataset_name, T.NormalizeFeatures())
 
-
     print(f"Loading data set {dataset_name} from: ", path)
     data = dataset[0]  # Extract graph
-    return dataset, data    return dataset, data    return dataset, data    return dataset, data
+    return dataset, data
 
 
 def split_edges(data, val_ratio=0.05, test_ratio=0.1):
@@ -207,7 +206,6 @@ def split_edges(data, val_ratio=0.05, test_ratio=0.1):
     assert 'batch' not in data  # No batch-mode.
 
     row, col = data.edge_index
-
 
     # Return upper triangular portion.
     mask = row < col
@@ -231,11 +229,11 @@ def split_edges(data, val_ratio=0.05, test_ratio=0.1):
 
     # Negative edges.
     num_nodes = data.num_nodes
-    #neg_adj_mask = torch.ones(num_nodes, num_nodes, dtype=torch.uint8)
-    #neg_adj_mask = neg_adj_mask.triu(diagonal=1)
-    #neg_adj_mask[row, col] = 0
+    # neg_adj_mask = torch.ones(num_nodes, num_nodes, dtype=torch.uint8)
+    # neg_adj_mask = neg_adj_mask.triu(diagonal=1)
+    # neg_adj_mask[row, col] = 0
 
-    #neg_row, neg_col = neg_adj_mask.nonzero().t()
+    # neg_row, neg_col = neg_adj_mask.nonzero().t()
     neg_row, neg_col = negative_sampling(data.test_pos_edge_index, num_nodes)
 
     perm = random.sample(

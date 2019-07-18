@@ -1,16 +1,18 @@
 import argparse
+import time
 
 import torch
 import torch.nn.functional as F
-from torch import nn
+from torch import nn, Tensor
 from torch.nn import Embedding
 from torch_geometric.data import NeighborSampler
 from torch_geometric.nn import GCNConv, VGAE
 from torch_geometric.nn.models.autoencoder import negative_sampling
 from tqdm import tqdm
 
-from graph.modules import CosineSimDecoder, VGAEEncoder
-from graph.utils import load_data
+from graph.datasets.snap import WikiTalk, GoogleWebGraph, AmazonCoPurchase
+from graph.modules import CosineSimDecoder
+from graph.torch_lsh import LSHDecoder
 
 
 class EmbeddingEncoder(nn.Module):
@@ -23,7 +25,8 @@ class EmbeddingEncoder(nn.Module):
         self.conv_logvar = GCNConv(
             2 * out_channels, out_channels, cached=False)
 
-    def forward(self, x, edge_index):
+    def forward(self, x: Tensor, edge_index):
+        x = x.to(torch.int64)
         emb = self.embedding(x)
         x = F.relu(self.conv1(emb, edge_index))
         return self.conv_mu(x, edge_index), self.conv_logvar(x, edge_index)
@@ -45,39 +48,63 @@ def test(model, pos_edge_index, node_features, num_nodes):
 
 def train_model(dataset, data, epochs, learning_rate, device):
     # Define Model
-    # encoder = EmbeddingEncoder(emb_dim=16, out_channels=16, n_nodes=dataset.num_nodes).to(device)
-    encoder = VGAEEncoder(data.num_features, 16, cached=False)
+    encoder = EmbeddingEncoder(emb_dim=200, out_channels=64, n_nodes=dataset.num_nodes).to(device)
+    # encoder = DataParallel(encoder, device_ids=[1, 2, 3]).to(device)
+
     decoder = CosineSimDecoder().to(device)
 
     model = VGAE(encoder=encoder, decoder=decoder).to(device)
 
     node_features, train_pos_edge_index = data.x.to(device), data.edge_index.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-    data_loader = NeighborSampler(data, size=[25], num_hops=1, batch_size=20000,
+    # data.edge_index = data.edge_index.long()
+
+    assert data.edge_index.max().item() < dataset.num_nodes
+
+    data_loader = NeighborSampler(data, size=[25, 10], num_hops=2, batch_size=10000,
                                   shuffle=False, add_self_loops=False)
 
     model.train()
 
     for epoch in tqdm(range(epochs)):
-        for data_flow in tqdm(data_loader(data.train_mask)):
+        epoch_loss = 0.0
+        for data_flow in tqdm(data_loader()):
             optimizer.zero_grad()
 
             data_flow = data_flow.to(device)
             block = data_flow[0]
-            embeddings = model.encode(node_features, block.edge_index)  # TODO Avoid computation of all node features!
+            embeddings = model.encode(node_features[block.n_id],
+                                      block.edge_index)  # TODO Avoid computation of all node features!
 
             loss = model.recon_loss(embeddings, block.edge_index)
-            loss = loss + (1 / data.num_nodes) * model.kl_loss()
+            loss = loss + (1 / len(block.n_id)) * model.kl_loss()
+
+            epoch_loss += loss.item()
 
             # Compute gradients
             loss.backward()
             # Perform optimization step
             optimizer.step()
 
-            print(f"Loss: {loss.item()}")
-            val_auc, val_ap = test(model, block.edge_index, embeddings, data.num_nodes)
-            print('Validation-Epoch: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, val_auc, val_ap))
+        z = model.encode(node_features, train_pos_edge_index)
+
+        torch.save(z.cpu(), "large_emb.pt")
+        #t = time.time()
+        #lsh_adjacency = LSHDecoder(bands=2,
+        #                           rows=256,
+        #                           verbose=True,
+        #                           assure_correctness=True,
+        #                           sim_thresh=0.9999)(z)
+        #lsh_time = time.time() - t
+        #lsh_size = lsh_adjacency.element_size() * lsh_adjacency._nnz() / 10 ** 6
+#
+        #print(lsh_time, lsh_size)
+
+
+        print(f"Loss after epoch {epoch} / {epochs}: {epoch_loss}")
+        # val_auc, val_ap = test(model, block.edge_index, embeddings, data.num_nodes)
+        # print('Validation-Epoch: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, val_auc, val_ap))
 
     return model
 
@@ -86,7 +113,8 @@ def run_experiment(seed: int, epochs: int, learning_rate: float, gpu_id=1):
     device = torch.device(f'cuda:{gpu_id}' if (torch.cuda.is_available() and gpu_id > 0) else 'cpu')
 
     # Load Amazon Data Set
-    dataset, data = load_data('Reddit')
+    dataset = AmazonCoPurchase("../data/amazon_co")
+    data = dataset[0]
     # data = train_val_test_split(data)
 
     model = train_model(dataset, data, epochs=epochs, learning_rate=learning_rate, device=device)

@@ -65,11 +65,81 @@ class SnapNetwork(ABC, Dataset):
 
 
 class Slashdot(SnapNetwork):
+    def get_base_url(self):
+        return "http://snap.stanford.edu./data/"
+
     def get_raw_file_names(self):
         return ["soc-Slashdot0902.txt.gz"]
 
     def get_num_nodes(self):
         return 82168
+
+
+class DBLP(SnapNetwork):
+
+    def get_num_nodes(self):
+        # return 317080
+        return self.data.edge_index.max().item() + 1
+
+    def get_raw_file_names(self):
+        return [
+            "com-dblp.ungraph.txt.gz"
+        ]
+
+
+class WikiTalk(SnapNetwork):
+
+    def get_num_nodes(self):
+        return 2394385
+
+    def get_base_url(self):
+        return "http://snap.stanford.edu./data/"
+
+    def get_raw_file_names(self):
+        return [
+            "wiki-Talk.txt.gz"
+        ]
+
+
+class GoogleWebGraph(SnapNetwork):
+
+    def get_num_nodes(self):
+        # return 875713
+        return torch.max(self.data.edge_index) + 1
+
+    def get_base_url(self):
+        return "http://snap.stanford.edu./data/"
+
+    def get_raw_file_names(self):
+        return [
+            "web-Google.txt.gz"
+        ]
+
+
+class AmazonCoPurchase(SnapNetwork):
+
+    def get_num_nodes(self):
+        return 403394
+
+    def get_base_url(self):
+        return "http://snap.stanford.edu./data/"
+
+    def get_raw_file_names(self):
+        return [
+            "amazon0601.txt.gz"
+        ]
+
+
+class Youtube(SnapNetwork):
+
+    def get_num_nodes(self):
+        # return 1134890 + 1
+        return torch.max(self.data.edge_index) + 1
+
+    def get_raw_file_names(self):
+        return ["com-youtube.ungraph.txt.gz",
+                "com-youtube.all.cmty.txt.gz",
+                "com-youtube.top5000.cmty.txt.gz"]
 
 
 class Amazon(SnapNetwork):
@@ -78,7 +148,8 @@ class Amazon(SnapNetwork):
         return 75149
 
     def get_num_nodes(self):
-        return 334863
+        # return 334863
+        return torch.max(self.data.edge_index) + 1
 
     def get_raw_file_names(self):
         return [
