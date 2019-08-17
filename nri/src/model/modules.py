@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-from nri.src import node2edge, edge2node, gen_fully_connected, my_softmax
+from .utils import node2edge, edge2node, gen_fully_connected, my_softmax
 
 
 class MLP(nn.Module):
@@ -290,7 +290,6 @@ class RNNDecoder(nn.Module):
         if inputs.is_cuda:
             hidden = hidden.to(inputs.device)
 
-
         pred_all = []
 
         for step in range(0, inputs.size(1) - 1):
@@ -432,3 +431,49 @@ class MLPDecoder(nn.Module):
         pred_all = output[:, :(inputs.size(1) - 1), :, :]
 
         return pred_all.transpose(1, 2).contiguous()
+
+
+def create_decoder_from_config(config: dict):
+    """
+    Creates a decoder as specified in the config file.
+    :return: torch.nn.Module
+    """
+    dataset = config['data']['name']
+    n_features = config['data'][dataset]['dims']
+    if config['model']['decoder']['model'] == 'mlp':
+        decoder = MLPDecoder(n_in_node=n_features,
+                             edge_types=config['model']['n_edge_types'],
+                             msg_hid=config['model']['decoder']['hidden_dim'],
+                             msg_out=config['model']['decoder']['hidden_dim'],
+                             n_hid=config['model']['decoder']['hidden_dim'],
+                             do_prob=config['model']['decoder']['dropout'],
+                             skip_first=config['model']['skip_first'])
+    elif config['model']['decoder']['model'] == 'rnn':
+        decoder = RNNDecoder(n_in_node=n_features,
+                             edge_types=config['model']['n_edge_types'],
+                             n_hid=config['model']['decoder']['hidden_dim'],
+                             do_prob=config['model']['decoder']['dropout'],
+                             skip_first=config['model']['skip_first'])
+    return decoder
+
+
+def create_encoder_from_config(config):
+    """
+    Creates an encoder as specified in the config file.
+    :return: torch.nn.Module
+    """
+    dataset = config['data']['name']
+    n_features = config['data'][dataset]['dims']
+    if config['model']['encoder']['model'] == 'mlp':
+        encoder = MLPEncoder(n_in=config['data']['timesteps'] * n_features,
+                             n_hid=config['model']['encoder']['hidden_dim'],
+                             n_out=config['model']['n_edge_types'],
+                             do_prob=config['model']['encoder']['dropout'],
+                             factor=config['model']['factor_graph'])
+    elif config['model']['encoder']['model'] == 'cnn':
+        encoder = CNNEncoder(n_in=n_features,
+                             n_hid=config['model']['encoder']['hidden_dim'],
+                             n_out=config['model']['n_edge_types'],
+                             do_prob=config['model']['encoder']['dropout'],
+                             factor=config['model']['factor_graph'])
+    return encoder

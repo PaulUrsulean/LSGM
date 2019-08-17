@@ -137,7 +137,11 @@ def edge2node(m, adj_rec, adj_send):
     return incoming / incoming.size(1)
 
 
-def load_models(enc: torch.nn.Module, dec: torch.nn.Module, config: dict):
+def load_weights_for_model(enc: torch.nn.Module, dec: torch.nn.Module, config: dict):
+    """
+    Loads the weights for an encoder and decoder from the path specified in the config file
+    :return: (encoder, decoder)-tuple with loaded weights
+    """
     models_path = config['training']['load_path']
     path = Path(models_path).parent / "models"
 
@@ -146,8 +150,8 @@ def load_models(enc: torch.nn.Module, dec: torch.nn.Module, config: dict):
     if max_epoch == -1:
         raise FileNotFoundError(f"No models found under {models_path}")
 
-    load_weights(enc, path / f"encoder_epoch{max_epoch}.pt")
-    load_weights(dec, path / f"decoder_epoch{max_epoch}.pt")
+    update_model_weights_from_path(enc, path / f"encoder_epoch{max_epoch}.pt")
+    update_model_weights_from_path(dec, path / f"decoder_epoch{max_epoch}.pt")
 
     print(f"Loaded encoder and decoder from path {path} and epoch {max_epoch}.")
     config['training']['load_path'] = None
@@ -160,7 +164,6 @@ def find_latest_checkpoint(path):
     :param path: Path to folder where models are stored
     :return: epoch as int
     """
-
     max_epoch = -1
     for f in os.listdir(path):
 
@@ -173,7 +176,7 @@ def find_latest_checkpoint(path):
     return max_epoch
 
 
-def load_weights(model, path):
+def update_model_weights_from_path(model, path):
     model.load_state_dict(torch.load(path))
 
 
@@ -185,7 +188,14 @@ def kl():
     pass
 
 
-def edges_to_adj(edges, n_atoms):
+def edges_to_adj(edges: torch.Tensor, n_atoms: int):
+    """
+    Given a tensor containing multiple latent graphs for multiple samples (tensor contains only non-diagonal elements),
+    reshapes them to have NxN shape and concatenates them.
+    :param edges:
+    :param n_atoms:
+    :return: Numpy array with shape (n_samples, n_edge_types, n_atoms, n_atoms)
+    """
     n_samples = edges.size(0)
     indices = get_offdiag_indices(n_atoms)
     n_edge_types = edges.size(-1)
@@ -203,17 +213,6 @@ def edges_to_adj(edges, n_atoms):
     return graphs
 
 
-def id_2_loc(i):
-    """
-    Remove when real function is provided
-    :param i:
-    :return:
-    """
-    lat = np.random.rand() * 8 + 36
-    lon = np.random.rand() * 8 - 3.9
-    return (lon, lat)
-
-
 def get_offdiag_indices(num_nodes):
     """Linear off-diagonal indices."""
     ones = torch.ones(num_nodes, num_nodes)
@@ -221,4 +220,3 @@ def get_offdiag_indices(num_nodes):
     offdiag_indices = (ones - eye).nonzero().t()
     offdiag_indices = offdiag_indices[0] * num_nodes + offdiag_indices[1]
     return offdiag_indices
-

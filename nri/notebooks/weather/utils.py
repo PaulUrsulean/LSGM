@@ -26,8 +26,8 @@ def plot_interactions(locations: List[str],
 
     # Plot Locations of weather stations
     for i, (x, y) in enumerate(pixel_coords):
-        ax.plot(x, y, 'ok', markersize=5, color='black')
-        ax.text(x, y, str(i), fontsize=12, color='black');
+        ax.plot(x, y, 'ok', markersize=10, color='yellow')
+        ax.text(x + 10, y + 10, "Station " + str(i), fontsize=20, color='yellow');
 
     # Infer number of edge types and atoms from latent graph
     n_atoms = latent_graph.shape[-1]
@@ -47,7 +47,7 @@ def plot_interactions(locations: List[str],
                     x = locations[i]
                     y = locations[j]
                     map.drawgreatcircle(x[0], x[1], y[0], y[1],
-                                        color=color_map(edge_type),
+                                        color=color_map(edge_type - 1),
                                         label=str(edge_type))
     handles, labels = ax.get_legend_handles_labels()
     unique = [(h, l) for i, (h, l) in enumerate(zip(handles, labels)) if l not in labels[:i]]
