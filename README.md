@@ -23,10 +23,3 @@ Start new session: `tmux new -s session-name`
 Detach from session: `ctrl-b d`   
 Show active sessions: `tmux ls`  
 Attach to running: `tmux attach -t session-name`  
-
-
-
-### Contribution
-I'd propose to keep the overall structure similar to the one 
-in [this Pytorch Template](https://github.com/victoresque/pytorch-template). This is optional of course though. :)
-Right now, the logger package is directly used in our project.
