@@ -10,25 +10,21 @@ from torch_geometric.nn import GAE, VGAE
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 
 from graph.utils import *
-
 from graph.early_stopping import EarlyStopping
 from graph.modules import *
-
 from graph.torch_lsh import LSHDecoder
 
 
 def run_experiment(args):
     """
-    Performing experiment
-    :param args:
-    :return:
+    Performing experiment for the given arguments
     """
-    dataset, data = load_data(args.dataset)  # Todo: change specification of data set maybe without args
+    dataset, data = load_data(args.dataset)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Define Model
     encoder = create_encoder(args.model, dataset.num_features, args.latent_dim).to(device)
-    decoder = create_decoder(args.decoder, args.lsh).to(device)
+    decoder = create_decoder(args.decoder).to(device)
 
     if args.model == 'GAE':
         model = GAE(encoder=encoder, decoder=decoder).to(device)
@@ -37,13 +33,12 @@ def run_experiment(args):
 
     # Split edges of a torch_geometric.data.Data object into pos negative train/val/test edges
     # default ratios of positive edges: val_ratio=0.05, test_ratio=0.1
-    data.train_mask = data.val_mask = data.test_mask = data.y = None  # TODO See if necessary or why
     print("Data.edge_index.size", data.edge_index.size(1))
     data = model.split_edges(data)
     node_features, train_pos_edge_index = data.x.to(device), data.train_pos_edge_index.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
-    def train_epoch(epoch):
+    def train_epoch():
         """
         Performing training over a single epoch and optimize over loss
         :return: log - loss of training loss
@@ -186,7 +181,7 @@ def run_experiment(args):
 
     if not (args.load_model and args.early_stopping_patience == 0):
         for epoch in range(1, args.epochs):
-            log = train_epoch(epoch)
+            log = train_epoch()
             logs.append(log)
 
             # Validation metrics
@@ -275,7 +270,6 @@ def run_grid_search(args):
     percentiles = [0.97, 0.98, 0.995]
     lsh_bands = [32, 16, 8]
     lsh_rows = [16, 32, 64, 128, 196]
-
 
     for dset in datasets:
         train_from_scratch = True
@@ -367,12 +361,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    if args.grid_search and args.lsh:
+    if args.grid_search:
         run_grid_search(args)
-
-    elif args.grid_search and not args.lsh:
-        print("ERROR: Use the --lsh flag to grid search over LSH parameters")
-
     else:
         print("Performing Single-Experiment")
         run_experiment(args)

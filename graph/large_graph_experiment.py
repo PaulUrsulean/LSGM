@@ -1,5 +1,4 @@
 import argparse
-import time
 
 import torch
 import torch.nn.functional as F
@@ -10,9 +9,8 @@ from torch_geometric.nn import GCNConv, VGAE
 from torch_geometric.nn.models.autoencoder import negative_sampling
 from tqdm import tqdm
 
-from graph.datasets.snap import WikiTalk, GoogleWebGraph, AmazonCoPurchase
+from graph.datasets.snap import AmazonCoPurchase
 from graph.modules import CosineSimDecoder
-from graph.torch_lsh import LSHDecoder
 
 
 class EmbeddingEncoder(nn.Module):
@@ -46,10 +44,9 @@ def test(model, pos_edge_index, node_features, num_nodes):
     return model.test(z, pos_edge_index, neg_edge_index)
 
 
-def train_model(dataset, data, epochs, learning_rate, device):
+def train_model_and_save_embeddings(dataset, data, epochs, learning_rate, device):
     # Define Model
     encoder = EmbeddingEncoder(emb_dim=200, out_channels=64, n_nodes=dataset.num_nodes).to(device)
-    # encoder = DataParallel(encoder, device_ids=[1, 2, 3]).to(device)
 
     decoder = CosineSimDecoder().to(device)
 
@@ -90,26 +87,13 @@ def train_model(dataset, data, epochs, learning_rate, device):
         z = model.encode(node_features, train_pos_edge_index)
 
         torch.save(z.cpu(), "large_emb.pt")
-        #t = time.time()
-        #lsh_adjacency = LSHDecoder(bands=2,
-        #                           rows=256,
-        #                           verbose=True,
-        #                           assure_correctness=True,
-        #                           sim_thresh=0.9999)(z)
-        #lsh_time = time.time() - t
-        #lsh_size = lsh_adjacency.element_size() * lsh_adjacency._nnz() / 10 ** 6
-#
-        #print(lsh_time, lsh_size)
-
 
         print(f"Loss after epoch {epoch} / {epochs}: {epoch_loss}")
-        # val_auc, val_ap = test(model, block.edge_index, embeddings, data.num_nodes)
-        # print('Validation-Epoch: {:03d}, AUC: {:.4f}, AP: {:.4f}'.format(epoch, val_auc, val_ap))
 
     return model
 
 
-def run_experiment(seed: int, epochs: int, learning_rate: float, gpu_id=1):
+def run(seed: int, epochs: int, learning_rate: float, gpu_id=1):
     device = torch.device(f'cuda:{gpu_id}' if (torch.cuda.is_available() and gpu_id > 0) else 'cpu')
 
     # Load Amazon Data Set
@@ -117,9 +101,7 @@ def run_experiment(seed: int, epochs: int, learning_rate: float, gpu_id=1):
     data = dataset[0]
     # data = train_val_test_split(data)
 
-    model = train_model(dataset, data, epochs=epochs, learning_rate=learning_rate, device=device)
-
-    pass
+    model = train_model_and_save_embeddings(dataset, data, epochs=epochs, learning_rate=learning_rate, device=device)
 
 
 if __name__ == '__main__':
@@ -135,7 +117,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    run_experiment(seed=args.seed,
-                   epochs=args.epochs,
-                   learning_rate=args.lr,
-                   gpu_id=args.gpu)
+    run(seed=args.seed,
+        epochs=args.epochs,
+        learning_rate=args.lr,
+        gpu_id=args.gpu)

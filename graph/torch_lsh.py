@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 
 import numpy as np
-import scipy.sparse as sp
 import torch
 import torch.nn.functional as F
 from torch.distributions import MultivariateNormal
@@ -76,7 +75,7 @@ class DotProductSimilarity(LSHDistanceMetric):
         return v1.dot(v2)
 
     def dist(self, v1, v2):
-        pass
+        raise NotImplementedError()
 
     def signature(self, X: torch.Tensor):
         """
@@ -154,7 +153,6 @@ class LSHDecoder(torch.nn.Module):
                 duplicates_embeddings = embeddings[duplicates]
                 duplicates = torch.Tensor(duplicates)
 
-                # TODO: Maybe skip that step if we don't want to assure correctness
                 pairwise_sim = self.sim_metric.pairwise_sim(duplicates_embeddings)
 
                 # Remove self loops manually
@@ -181,19 +179,6 @@ class LSHDecoder(torch.nn.Module):
             values=pairs_similarites,
             size=torch.Size([N, N])
         )
-
-        # pair_data = torch.tensor(list(pairs_indices)).t()
-
-    #
-    # if self.assure_correctness:
-    #    sparse_values = torch.FloatTensor(pair_data[-1])
-    #    pair_data = torch.LongTensor(pair_data[:-1].long())
-    # else:
-    #    sparse_values = torch.ones(pair_data.shape[1])
-    #
-    # return torch.sparse.FloatTensor(pair_data,
-    #                                sparse_values,
-    #                                torch.Size([N, N]))
 
     def forward(self, Z):
         signature_matrix = self.sim_metric.signature(Z)

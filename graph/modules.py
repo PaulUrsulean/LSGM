@@ -75,13 +75,6 @@ class CosineSimHashDecoder(CosineSimDecoder):
                                         torch.Size([n_nodes, n_nodes]))
 
 
-#         # DOK type sparse matrix has efficient changing of sparse structure
-#         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
-
-#         for v1, v2, d in pairs:
-#             adjacency[v1, v2] = adjacency[v2, v1] = 1 - d/2 if sigmoid else 1
-
-
 class EuclideanDistanceDecoder(torch.nn.Module):
     """
     Calculates pairwise similarity of embeddings with the L2 norm.
@@ -160,24 +153,6 @@ class EuclideanDistanceHashDecoder(EuclideanDistanceDecoder):
             dist)
 
 
-#         # DOK type sparse matrix has efficient changing of sparse structure
-#         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
-
-#         # DOK matrices can be given a batch of updates via _update
-#         sparse_indices = dict()
-
-#         # Have to iterate twice in order to be able to return sigmoid-like values
-#         # since Euclidean distance is in the range [0, inf)
-#         max_dist = max(pairs, key=itemgetter(2))[2]
-
-#         for v1, v2, d in pairs:
-#             sparse_indices[(v1, v2)] = sparse_indices[(v2, v1)] = expit(offset - d) if sigmoid else 1
-
-#         adjacency._update(sparse_indices)
-
-#         return DOK_to_torch(adjacency) if not debug else (DOK_to_torch(adjacency), dist)
-
-
 class InnerProductHashDecoder(InnerProductDecoder):
     def forward_all(self, z, sigmoid=True, d=0.25, debug=False, normalize=False):
 
@@ -219,20 +194,6 @@ class InnerProductHashDecoder(InnerProductDecoder):
             torch.sparse.FloatTensor(torch.LongTensor([v1s, v2s]), torch.FloatTensor(ds),
                                      torch.Size([n_nodes, n_nodes])),
             dist)
-
-
-#         # DOK type sparse matrix has efficient changing of sparse structure
-#         adjacency = sparse.dok_matrix(sparse.identity(len(z)))
-
-#         # DOK matrices can be given a batch of updates via _update
-#         sparse_indices = dict()
-
-#         for v1, v2, d in pairs:
-#             sparse_indices[(v1, v2)] = sparse_indices[(v2, v1)] = expit(d) if sigmoid else d
-
-#         adjacency._update(sparse_indices)
-
-#         return DOK_to_torch(adjacency) if not debug else (DOK_to_torch(adjacency), dist)
 
 
 class GAEEncoder(torch.nn.Module):
@@ -280,18 +241,17 @@ def create_decoder(name, use_lsh=False):
     :return: torch.nn.Module object with implemented forward and forward_all method
     """
     if name == "dot":
-        return InnerProductDecoder() #if not use_lsh else InnerProductHashDecoder()
+        return InnerProductDecoder()  # if not use_lsh else InnerProductHashDecoder()
     elif name == "cosine":
-        return CosineSimDecoder() #if not use_lsh else CosineSimHashDecoder()
+        return CosineSimDecoder()  # if not use_lsh else CosineSimHashDecoder()
     elif name == "l2":
-        return EuclideanDistanceDecoder() #if not use_lsh else EuclideanDistanceHashDecoder()
+        return EuclideanDistanceDecoder()  # if not use_lsh else EuclideanDistanceHashDecoder()
     else:
         raise NotImplementedError(
             f"Decoder with name {name} and {'' if use_lsh else 'non-'}LSH version not implemented.")
 
 
 def create_encoder(name, num_features, latent_dim):
-
     if name == 'gae':
         return GAEEncoder(num_features, latent_dim)
     else:

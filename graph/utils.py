@@ -15,7 +15,7 @@ from graph.datasets.snap import Amazon
 
 def sparse_precision_recall(data, sparse_matrix, verbose=True):
     print("Compute Sparse-Precision-Recall")
-    all_edges = extract_all_edges(data)
+    all_edges = extract_all_edges_from_graph_data(data)
 
     pred = sparse_matrix.coalesce().indices().t().detach().cpu().numpy()
     pred = set(zip(pred[:, 0], pred[:, 1]))
@@ -29,7 +29,7 @@ def dense_precision_recall(data, dense_matrix, min_sim, verbose=True):
     if verbose:
         print("Compute Dense-Precision-Recall")
 
-    all_edges = extract_all_edges(data)
+    all_edges = extract_all_edges_from_graph_data(data)
     pred = (dense_matrix.detach().cpu().numpy() > min_sim).nonzero()
 
     pred = set(zip(pred[0], pred[1]))
@@ -48,7 +48,7 @@ def sampled_dense_precision_recall(data, sampled_dense_matrix, ix_mapping, min_s
     embedding_indices = set(ix_mapping.values())
     relevant_edges = []
 
-    for edge in extract_all_edges(data):
+    for edge in extract_all_edges_from_graph_data(data):
         if edge[0] in embedding_indices and edge[1] in embedding_indices:
             relevant_edges.append(edge)
 
@@ -90,6 +90,10 @@ def sparse_v_dense_precision_recall(dense_matrix, sparse_matrix, min_sim, verbos
 
 
 def evaluate_edges(pred, true, verbose=True):
+    """
+    Calculates precision and recall for the predicted connections
+    :return: (precision, recall)-tuple
+    """
     sum = 0.0
 
     prec_loop = pred if not verbose else tqdm(pred, desc="Checking precision")
@@ -112,7 +116,7 @@ def evaluate_edges(pred, true, verbose=True):
     return precision, recall
 
 
-def extract_all_edges(data):
+def extract_all_edges_from_graph_data(data):
     return torch.cat((data.val_pos_edge_index,
                       data.test_pos_edge_index,
                       data.train_pos_edge_index), 1).t().detach().cpu().numpy()
@@ -120,6 +124,7 @@ def extract_all_edges(data):
 
 def sample_percentile(q, matrix_or_embeddings, dist_measure=None, sigmoid=False, sample_size=1000):
     """
+    Samples from the given tensor to estimate a percentile.
     :param q: The percentile to look for the corresponding value in the pairs. In [0, 1]
     :param matrix_or_embeddings: As the name suggests, this param can either be the dense (N, N) adjacency matrix with values already computed, or the (N, D) matrix of embeddings.
     :param dist_measure: If given the matrix of embeddings, the distances must be computed directly in this function
@@ -149,7 +154,7 @@ def sample_percentile(q, matrix_or_embeddings, dist_measure=None, sigmoid=False,
         assert N_1 > N_2, "Dimensions of embeddings bigger than n_nodes, something might be wrong."
         assert dist_measure in ['cosine', 'dot'], "dist_measure must be set as 'cosine' or 'dot'"
 
-        #         sample_a, sample_b = matrix_or_embeddings[sample_ix_a].detach(), matrix_or_embeddings[sample_ix_b].detach()
+        # sample_a, sample_b = matrix_or_embeddings[sample_ix_a].detach(), matrix_or_embeddings[sample_ix_b].detach()
         sample_embeddings = matrix_or_embeddings[sample_ix].detach()
 
         # If cosine just normalize vectors

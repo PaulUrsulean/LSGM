@@ -6,8 +6,10 @@ Note: - Originally implemented for decreasing validation metric
 import numpy as np
 import torch
 
+
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience."""
+
     def __init__(self, use_early_stopping, patience=7, verbose=False):
         """
         Args:
@@ -16,7 +18,7 @@ class EarlyStopping:
             verbose (bool): If True, prints a message for each validation loss improvement.
                             Default: False
         """
-        self.use_early_stopping=use_early_stopping
+        self.use_early_stopping = use_early_stopping
         self.patience = patience
         self.verbose = verbose
         self.counter = 0

@@ -104,8 +104,8 @@ class WikiTalk(SnapNetwork):
 class GoogleWebGraph(SnapNetwork):
 
     def get_num_nodes(self):
-        # return 875713
-        return torch.max(self.data.edge_index) + 1
+        return 875713
+        #return torch.max(self.data.edge_index) + 1
 
     def get_base_url(self):
         return "http://snap.stanford.edu./data/"
@@ -133,8 +133,8 @@ class AmazonCoPurchase(SnapNetwork):
 class Youtube(SnapNetwork):
 
     def get_num_nodes(self):
-        # return 1134890 + 1
-        return torch.max(self.data.edge_index) + 1
+        return 1134890# + 1
+        #return torch.max(self.data.edge_index) + 1
 
     def get_raw_file_names(self):
         return ["com-youtube.ungraph.txt.gz",
@@ -148,8 +148,8 @@ class Amazon(SnapNetwork):
         return 75149
 
     def get_num_nodes(self):
-        # return 334863
-        return torch.max(self.data.edge_index) + 1
+        return 334863
+        #return torch.max(self.data.edge_index) + 1
 
     def get_raw_file_names(self):
         return [
