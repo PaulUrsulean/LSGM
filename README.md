@@ -9,7 +9,8 @@ Please note that it will try to detect if you have cuda installed and downloads 
 
 ### Repository Structure
 As our work was mostly separated into two parts, you can find further instructions on 
-how to re-run our experiments in the respective folders, `nri` and `graph`.
+how to re-run our experiments in the respective folders, [nri](https://gitlab.lrz.de/ml-lab-summer-19/project-4/tree/master/nri)
+and [graph](https://gitlab.lrz.de/ml-lab-summer-19/project-4/tree/master/graph).
 
 #### Run on GPU
 To run a program on a specific GPU only, execute
