@@ -23,7 +23,8 @@ SOFTWARE.
 """
 
 import importlib
-from logger.utils import Timer
+
+from .utils import Timer
 
 
 class WriterTensorboardX():
@@ -35,8 +36,8 @@ class WriterTensorboardX():
                 self.writer = importlib.import_module('tensorboardX').SummaryWriter(log_dir)
             except ImportError:
                 message = "Warning: TensorboardX visualization is configured to use, but currently not installed on " \
-                    "this machine. Please install the package by 'pip install tensorboardx' command or turn " \
-                    "off the option in the 'config.json' file."
+                          "this machine. Please install the package by 'pip install tensorboardx' command or turn " \
+                          "off the option in the 'config.json' file."
                 logger.warning(message)
         self.step = 0
         self.mode = ''
@@ -73,6 +74,7 @@ class WriterTensorboardX():
                     if name not in self.tag_mode_exceptions:
                         tag = '{}/{}'.format(tag, self.mode)
                     add_data(tag, data, self.step, *args, **kwargs)
+
             return wrapper
         else:
             # default action for returning methods defined in this class, set_step() for instance.

@@ -22,9 +22,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import json
-from pathlib import Path
-from datetime import datetime
 from collections import OrderedDict
+from datetime import datetime
+from pathlib import Path
 
 
 def ensure_dir(dirname):
@@ -32,13 +32,16 @@ def ensure_dir(dirname):
     if not dirname.is_dir():
         dirname.mkdir(parents=True, exist_ok=False)
 
+
 def read_json(fname):
     with fname.open('rt') as handle:
         return json.load(handle, object_hook=OrderedDict)
 
+
 def write_json(content, fname):
     with fname.open('wt') as handle:
         json.dump(content, handle, indent=4, sort_keys=False)
+
 
 class Timer:
     def __init__(self):

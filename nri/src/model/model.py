@@ -13,10 +13,10 @@ from torch.autograd import Variable
 from torch.nn import DataParallel
 from torch.nn.utils import clip_grad_value_
 
-from nri.src import WriterTensorboardX, setup_logging
-from model import losses
-from nri.src import RNNDecoder
-from nri.src import gen_fully_connected, my_softmax, nll, kl, load_models, gumbel_softmax
+from nri.src.logger import WriterTensorboardX, setup_logging
+from . import losses
+from .modules import RNNDecoder
+from .utils import gen_fully_connected, my_softmax, nll, kl, load_weights_for_model, gumbel_softmax
 
 
 class Model:
@@ -120,17 +120,17 @@ class Model:
         self.dynamic_graph = config['model']['dynamic_graph']
 
         self.log_step = config['logging']['log_step']
+        self.log_prior = None
 
         # Set prior accordingly if it should be used
         if config['globals']['prior']:
-            first_edge_probability = 0.91 # Used in paper for motion capture data
+            first_edge_probability = 0.91  # Used in paper for motion capture data
             remaining_percent = (1.0 - first_edge_probability) / (self.n_edge_types - 1)
-            prior = np.ones(shape=(self.n_edge_types)) * remaining_percent
+            prior = np.ones(shape=self.n_edge_types) * remaining_percent
             prior[0] = first_edge_probability
             self.log_prior = np.log(prior)
-            assert(np.sum(prior) == 1.0, "Probabilities in edge prior should sum to 1.")
+            assert (np.sum(prior) == 1.0, "Probabilities in edge prior should sum to 1.")
             print(f"Training with prior {prior} (log: {self.log_prior})")
-
 
     def train(self):
         self.encoder.train()
@@ -307,12 +307,12 @@ class Model:
     def test(self):
         if self.do_save_models:
             try:
-                self.encoder, self.decoder = load_models(self.encoder,
-                                                         self.decoder,
-                                                         config={
-                                                             'training': {
-                                                                 'load_path': os.path.join(self.log_path,
-                                                                                           "config.json")}})
+                self.encoder, self.decoder = load_weights_for_model(self.encoder,
+                                                                    self.decoder,
+                                                                    config={
+                                                                        'training': {
+                                                                            'load_path': os.path.join(self.log_path,
+                                                                                                      "config.json")}})
                 self.encoder = self.encoder.to(self.device)
                 self.decoder = self.decoder.to(self.device)
             except FileNotFoundError:

@@ -1,71 +1,38 @@
 import argparse
 import logging
-from os.path import join
 
 import numpy as np
 import torch.nn
 
-from config_parser import ConfigParser, options
-from nri.src import load_spring_data, load_random_data, load_weather_data_raw
-from nri.src import MLPDecoder, RNNDecoder, MLPEncoder, CNNEncoder
-from model.model import Model
-from nri.src import load_models
+from nri.src import create_decoder_from_config, create_encoder_from_config, \
+    load_data_from_config
+from nri.src import load_weights_for_model
+from nri.src.config_parser import ConfigParser, options
+from nri.src.model import Model
 
 
-def create_decoder(config):
-    dataset = config['data']['name']
-    n_features = config['data'][dataset]['dims']
-    if config['model']['decoder']['model'] == 'mlp':
-        decoder = MLPDecoder(n_in_node=n_features,
-                             edge_types=config['model']['n_edge_types'],
-                             msg_hid=config['model']['decoder']['hidden_dim'],
-                             msg_out=config['model']['decoder']['hidden_dim'],
-                             n_hid=config['model']['decoder']['hidden_dim'],
-                             do_prob=config['model']['decoder']['dropout'],
-                             skip_first=config['model']['skip_first'])
-    elif config['model']['decoder']['model'] == 'rnn':
-        decoder = RNNDecoder(n_in_node=n_features,
-                             edge_types=config['model']['n_edge_types'],
-                             n_hid=config['model']['decoder']['hidden_dim'],
-                             do_prob=config['model']['decoder']['dropout'],
-                             skip_first=config['model']['skip_first'])
-    return decoder
-
-
-def create_encoder(config):
-    dataset = config['data']['name']
-    n_features = config['data'][dataset]['dims']
-    if config['model']['encoder']['model'] == 'mlp':
-        encoder = MLPEncoder(n_in=config['data']['timesteps'] * n_features,
-                             n_hid=config['model']['encoder']['hidden_dim'],
-                             n_out=config['model']['n_edge_types'],
-                             do_prob=config['model']['encoder']['dropout'],
-                             factor=config['model']['factor_graph'])
-    elif config['model']['encoder']['model'] == 'cnn':
-        encoder = CNNEncoder(n_in=n_features,
-                             n_hid=config['model']['encoder']['hidden_dim'],
-                             n_out=config['model']['n_edge_types'],
-                             do_prob=config['model']['encoder']['dropout'],
-                             factor=config['model']['factor_graph'])
-    return encoder
-
-
-def run_experiment(config):
-    # Random Seeds
+def run_experiment(config: dict):
+    """
+    Runs experiment with details specified in config file.
+    If a logger is specified, all results with config will `be stored in a new folder.
+    :param config: Dictionary containing all fields. See 'config.json' for an example.
+    :return: None
+    """
+    # Set Random Seeds
     torch.random.manual_seed(config['globals']['seed'])
     np.random.seed(config['globals']['seed'])
 
     logger = logging.getLogger("experiment")
 
     logger.debug("Creating encoder and decoder")
-    encoder = create_encoder(config)
-    decoder = create_decoder(config)
+    encoder = create_encoder_from_config(config)
+    decoder = create_decoder_from_config(config)
 
     if config['training']['load_path']:
-        encoder, decoder = load_models(encoder, decoder, config)
+        encoder, decoder = load_weights_for_model(encoder, decoder, config)
 
     logger.debug("Loading data...")
-    data_loaders = load_data(config)
+    data_loaders = load_data_from_config(config)
 
     logger.debug("Creating model...")
     model = Model(encoder=encoder,
@@ -82,45 +49,12 @@ def run_experiment(config):
     logger.debug(test_results)
 
 
-def load_data(config):
-    if config['data']['name'] == 'springs':
-        data_loaders = load_spring_data(batch_size=config['training']['batch_size'],
-                                        suffix=config['data']['springs']['suffix'],
-                                        path=join(config['data']['path'], "springs"))
-    elif config['data']['name'] == 'random':
-        data_loaders = load_random_data(batch_size=config['training']['batch_size'],
-                                        n_atoms=config['data']['random']['atoms'],
-                                        n_examples=config['data']['random']['examples'],
-                                        n_dims=config['data']['random']['dims'],
-                                        n_timesteps=config['data']['random']['timesteps'])
-    elif config['data']['name'] == 'weather':
-        
-        filename = f"{config['data']['weather']['examples']}_{config['data']['weather']['atoms']}_{config['data']['weather']['timesteps']}_{config['data']['weather']['dims']}_0_raw{config['data']['weather']['suffix']}.pickle"
-        
-        print(filename)
-
-        features = ['avg_temp']
-        if config['data']['weather']['timesteps'] == 2:
-            features += ["rainfall"]
-        
-        data_loaders = load_weather_data_raw(batch_size=config['training']['batch_size'],
-                                         n_samples=config['data']['weather']['examples'],
-                                         n_nodes=config['data']['weather']['atoms'],
-                                         n_timesteps=config['data']['weather']['timesteps'],
-                                         features=features , #TODO,
-                                         filepath=join(config['data']['path'], "weather", filename))
-    else:
-        raise NotImplementedError(config['data']['name'])
-    return data_loaders
-
-
 if __name__ == '__main__':
-    args = argparse.ArgumentParser(description='TODO')
+    args = argparse.ArgumentParser(description="Run NRI experiment with details specified in a config file.")
     args.add_argument('-c', '--config', default="config.json", type=str,
-                      help='config file root_data_folder (default: None)')
+                      help='Path to "config.json". Leave empty to use example file in same directory.')
     args.add_argument('-l', '--load-path', default=None, type=str,
-                      help='path to latest checkpoint (default: None)')
+                      help='Path to existing experiment folder to automatically load latest checkpoint (default: None)')
 
-    config = ConfigParser(args, options=options).config
-    run_experiment(config)
-
+    experiment_config = ConfigParser(args, options=options).config
+    run_experiment(experiment_config)

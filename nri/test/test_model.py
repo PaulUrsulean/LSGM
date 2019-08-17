@@ -1,6 +1,6 @@
 import unittest
 
-from config_parser import generate_config
+from nri.src.config_parser import generate_config
 from nri.src import load_random_data
 from nri.src import Model, MLPDecoder
 from nri.src import MLPEncoder, RNNDecoder
